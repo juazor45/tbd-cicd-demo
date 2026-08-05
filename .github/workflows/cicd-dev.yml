@@ -47,28 +47,6 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Jira - Construcción Doing
-        if: ${{ github.event.inputs.change_ticket != '' }}
-        env:
-          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          TICKET: ${{ github.event.inputs.change_ticket }}
-          TARGET_STATUS: 'Construcción Doing'
-        run: |
-          TRANSITION_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
-            | jq -r --arg s "$TARGET_STATUS" '.transitions[] | select(.to.name==$s) | .id')
-          if [ -z "$TRANSITION_ID" ]; then
-            echo "⚠️ No hay transición hacia '$TARGET_STATUS' (quizá ya está ahí). Continuando."
-            exit 0
-          fi
-          curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
-            -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}"
-          echo "📋 $TICKET → '$TARGET_STATUS'"
-
       - name: Get Secrets (HashiCorp Vault)
         run: |
           echo "🔐 [MOCK] Autenticando contra HashiCorp Vault (AppRole)..."
