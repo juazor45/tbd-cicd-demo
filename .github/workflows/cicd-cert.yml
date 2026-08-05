@@ -12,7 +12,7 @@ on:
         required: true
         default: 'ms-exchange-rate'
       change_ticket:
-        description: 'Ticket de cambio en Jira (ej. DEMO-1)'
+        description: 'Ticket Jira (ej. SCRUM-6)'
         required: true
       run_cd:
         description: '¿Ejecutar despliegue (CD) después del CI?'
@@ -43,31 +43,43 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Validate Jira Change Ticket
+      - name: Jira - Validar ticket e iniciar Congelamiento
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           TICKET: ${{ github.event.inputs.change_ticket }}
         run: |
-          if [ -z "$JIRA_BASE_URL" ]; then
-            echo "📋 [MOCK] Secrets de Jira no configurados; validación simulada de $TICKET → APROBADO"
-            exit 0
-          fi
-          echo "📋 Consultando estado de $TICKET en Jira..."
+          echo "📋 Consultando $TICKET en Jira..."
           STATUS=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-            -H "Accept: application/json" \
-            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET?fields=status" | jq -r '.fields.status.name')
-          echo "Estado actual: $STATUS"
-          if [ "$STATUS" != "Aprobado" ]; then
-            echo "❌ El ticket $TICKET no está Aprobado (estado: $STATUS). Abortando."
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET?fields=status,summary" \
+            | jq -r '.fields.status.name // empty')
+
+          if [ -z "$STATUS" ]; then
+            echo "❌ El ticket $TICKET no existe o las credenciales fallan. Abortando."
             exit 1
           fi
-          echo "✅ Ticket aprobado"
+          echo "Estado actual: $STATUS"
+
+          if [ "$STATUS" != "Construcción Done" ] && [ "$STATUS" != "Congelamiento Doing" ]; then
+            echo "❌ Para promover a CERT el ticket debe estar en 'Construcción Done' (está en '$STATUS'). Abortando."
+            exit 1
+          fi
+
+          # Mover a Congelamiento Doing (inicio de la promoción)
+          TRANSITION_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            | jq -r '.transitions[] | select(.to.name=="Congelamiento Doing") | .id')
+          if [ -n "$TRANSITION_ID" ]; then
+            curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+              -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}"
+            echo "📋 $TICKET → 'Congelamiento Doing'"
+          fi
 
       - name: Get Secrets (HashiCorp Vault)
         run: |
-          echo "🔐 [MOCK] Autenticando contra HashiCorp Vault (AppRole)..."
           echo "🔐 [MOCK] Leyendo secretos de path: secret/data/cert/${{ github.event.inputs.component }}"
           echo "✅ Secretos obtenidos"
 
@@ -108,6 +120,24 @@ jobs:
           echo "🔍 [MOCK] SCA Xray (policy cert, sin waivers)..."
           echo "✅ SCA Xray: PASSED"
 
+      - name: Jira - Congelamiento Done
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ github.event.inputs.change_ticket }}
+        run: |
+          TRANSITION_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            | jq -r '.transitions[] | select(.to.name=="Congelamiento Done") | .id')
+          if [ -n "$TRANSITION_ID" ]; then
+            curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+              -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}"
+            echo "📋 $TICKET → 'Congelamiento Done' (artefacto RC listo, gates pasados)"
+          fi
+
   cd:
     name: CD → CERT
     runs-on: ubuntu-latest
@@ -127,7 +157,6 @@ jobs:
       - name: Build and Push Registry
         run: |
           IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ github.event.inputs.version }}"
-          echo "🐳 Construyendo imagen con el Dockerfile del repo..."
           docker build -t "$IMAGE" .
           echo "🐳 [MOCK] docker push $IMAGE"
           echo "✅ Imagen construida: $IMAGE"
@@ -139,6 +168,35 @@ jobs:
 
       - name: Deploy to Kubernetes Cluster
         run: |
+          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ github.event.inputs.version }}"
           echo "🚀 [MOCK] helm upgrade --install ${{ github.event.inputs.component }} ./chart -n $K8S_NAMESPACE"
-          echo "📋 [MOCK] Actualizando ${{ github.event.inputs.change_ticket }} en Jira → Desplegado en CERT"
-          echo "✅ Despliegue en CERT completado"
+          echo "🚀 Simulando el despliegue levantando el contenedor en el runner..."
+          docker run -d --name ms-cert -p 8080:8080 "$IMAGE"
+
+      - name: Smoke Test (verificación post-deploy)
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf localhost:8080/q/health/ready && break
+            sleep 2
+          done
+          echo ""
+          curl -sf localhost:8080/api/v1/exchange-rates; echo ""
+          echo "✅ Servicio desplegado y respondiendo en CERT"
+
+      - name: Jira - QA Testing Doing
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ github.event.inputs.change_ticket }}
+        run: |
+          TRANSITION_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            | jq -r '.transitions[] | select(.to.name=="QA Testing Doing") | .id')
+          if [ -n "$TRANSITION_ID" ]; then
+            curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+              -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}"
+            echo "📋 $TICKET → 'QA Testing Doing' (desplegado en cert, listo para pruebas QA)"
+          fi
