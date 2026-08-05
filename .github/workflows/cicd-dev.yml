@@ -1,0 +1,134 @@
+name: CICD-DEV
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión del artefacto (ej. 1.0.0-SNAPSHOT)'
+        required: true
+        default: '1.0.0-SNAPSHOT'
+      component:
+        description: 'Componente / microservicio a desplegar'
+        required: true
+        default: 'ms-demo'
+      run_cd:
+        description: '¿Ejecutar despliegue (CD) después del CI?'
+        required: true
+        type: boolean
+        default: true
+
+env:
+  ENVIRONMENT: dev
+  REGISTRY: registry.demo.local/dev
+  K8S_CLUSTER: aks-dev-cluster
+  K8S_NAMESPACE: ns-dev
+
+jobs:
+  # =========================================================
+  # CI - Integración Continua
+  # =========================================================
+  ci:
+    name: CI (${{ github.event.inputs.component }})
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_id: ${{ steps.publish.outputs.artifact_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare
+        run: |
+          echo "🔧 [MOCK] Preparando workspace..."
+          echo "Componente : ${{ github.event.inputs.component }}"
+          echo "Versión    : ${{ github.event.inputs.version }}"
+          echo "Branch     : ${{ github.ref_name }}"
+          echo "Commit     : ${{ github.sha }}"
+          echo "Ambiente   : $ENVIRONMENT"
+
+      - name: Get Secrets (HashiCorp Vault)
+        run: |
+          echo "🔐 [MOCK] Autenticando contra HashiCorp Vault (AppRole)..."
+          echo "🔐 [MOCK] Leyendo secretos de path: secret/data/dev/${{ github.event.inputs.component }}"
+          echo "SONAR_TOKEN=***" >> /dev/null
+          echo "FORTIFY_TOKEN=***" >> /dev/null
+          echo "✅ Secretos obtenidos e inyectados como variables enmascaradas"
+
+      - name: SonarQube (SAST / Quality Gate)
+        run: |
+          echo "📊 [MOCK] Ejecutando análisis SonarQube..."
+          echo "   sonar.projectKey=${{ github.event.inputs.component }}"
+          echo "   Coverage: 84.2% | Bugs: 0 | Vulnerabilities: 0 | Code Smells: 12"
+          echo "✅ Quality Gate: PASSED"
+
+      - name: Fortify (SAST)
+        run: |
+          echo "🛡️ [MOCK] Ejecutando escaneo Fortify SCA..."
+          echo "   Critical: 0 | High: 0 | Medium: 2 | Low: 5"
+          echo "✅ Security Gate Fortify: PASSED"
+
+      - name: Publish Artifact
+        id: publish
+        run: |
+          ARTIFACT_ID="${{ github.event.inputs.component }}-${{ github.event.inputs.version }}"
+          echo "📦 [MOCK] Empaquetando y publicando artefacto en Artifactory..."
+          echo "   Artefacto: $ARTIFACT_ID.jar"
+          echo "   Repo: libs-snapshot-local"
+          echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
+          echo "✅ Artefacto publicado: $ARTIFACT_ID"
+
+      - name: Component Test (contract testing vs mock server)
+        run: |
+          echo "🧪 [MOCK] Levantando mock server de dependencias..."
+          echo "🧪 [MOCK] Validando contratos de APIs (component test)..."
+          echo "   Tests ejecutados: 42 | Passed: 42 | Failed: 0"
+          echo "✅ Component tests: PASSED"
+
+      - name: SCA Xray
+        run: |
+          echo "🔍 [MOCK] Ejecutando análisis SCA con JFrog Xray..."
+          echo "   Dependencias escaneadas: 137"
+          echo "   Violations (policy dev): 0 críticas, 1 alta (waiver aprobado)"
+          echo "✅ SCA Xray: PASSED"
+
+  # =========================================================
+  # CD - Despliegue Continuo
+  # =========================================================
+  cd:
+    name: CD → DEV
+    runs-on: ubuntu-latest
+    needs: ci
+    if: ${{ github.event.inputs.run_cd == 'true' }}
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare
+        run: |
+          echo "🔧 [MOCK] Preparando despliegue..."
+          echo "Artefacto  : ${{ needs.ci.outputs.artifact_id }}"
+          echo "Registry   : $REGISTRY"
+          echo "Cluster    : $K8S_CLUSTER"
+          echo "Namespace  : $K8S_NAMESPACE"
+
+      - name: Build and Push Registry
+        run: |
+          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ github.event.inputs.version }}"
+          echo "🐳 [MOCK] docker build -t $IMAGE ."
+          echo "🐳 [MOCK] docker push $IMAGE"
+          echo "✅ Imagen publicada en registry: $IMAGE"
+
+      - name: Set Runners
+        run: |
+          echo "🏃 [MOCK] Seleccionando self-hosted runners con acceso al cluster DEV..."
+          echo "   Runner group: rg-k8s-dev | Labels: [self-hosted, dev, k8s]"
+          echo "✅ Runners configurados"
+
+      - name: Deploy to Kubernetes Cluster
+        run: |
+          echo "🚀 [MOCK] kubectl config use-context $K8S_CLUSTER"
+          echo "🚀 [MOCK] helm upgrade --install ${{ github.event.inputs.component }} ./chart \\"
+          echo "          --namespace $K8S_NAMESPACE \\"
+          echo "          --set image.tag=${{ github.event.inputs.version }}"
+          echo "🚀 [MOCK] kubectl rollout status deployment/${{ github.event.inputs.component }} -n $K8S_NAMESPACE"
+          echo "✅ Despliegue en DEV completado"
