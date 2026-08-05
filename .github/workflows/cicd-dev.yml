@@ -11,6 +11,10 @@ on:
         description: 'Componente / microservicio a desplegar'
         required: true
         default: 'ms-exchange-rate'
+      change_ticket:
+        description: 'Ticket Jira (ej. SCRUM-6) - opcional en dev'
+        required: false
+        default: ''
       run_cd:
         description: '¿Ejecutar despliegue (CD) después del CI?'
         required: true
@@ -43,6 +47,28 @@ jobs:
           java-version: '17'
           cache: maven
 
+      - name: Jira - Construcción Doing
+        if: ${{ github.event.inputs.change_ticket != '' }}
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ github.event.inputs.change_ticket }}
+          TARGET_STATUS: 'Construcción Doing'
+        run: |
+          TRANSITION_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            | jq -r --arg s "$TARGET_STATUS" '.transitions[] | select(.to.name==$s) | .id')
+          if [ -z "$TRANSITION_ID" ]; then
+            echo "⚠️ No hay transición hacia '$TARGET_STATUS' (quizá ya está ahí). Continuando."
+            exit 0
+          fi
+          curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}"
+          echo "📋 $TICKET → '$TARGET_STATUS'"
+
       - name: Get Secrets (HashiCorp Vault)
         run: |
           echo "🔐 [MOCK] Autenticando contra HashiCorp Vault (AppRole)..."
@@ -55,13 +81,11 @@ jobs:
       - name: SonarQube (SAST / Quality Gate)
         run: |
           echo "📊 [MOCK] mvn sonar:sonar -Dsonar.projectKey=${{ github.event.inputs.component }}"
-          echo "   Coverage (JaCoCo): ver target/site/jacoco/index.html"
           echo "✅ Quality Gate: PASSED"
 
       - name: Fortify (SAST)
         run: |
-          echo "🛡️ [MOCK] Ejecutando escaneo Fortify SCA sobre el código fuente..."
-          echo "   Critical: 0 | High: 0 | Medium: 2 | Low: 5"
+          echo "🛡️ [MOCK] Escaneo Fortify SCA..."
           echo "✅ Security Gate Fortify: PASSED"
 
       - name: Publish Artifact
@@ -71,7 +95,7 @@ jobs:
           echo "📦 Artefacto generado: target/quarkus-app/ (fast-jar Quarkus)"
           echo "📦 [MOCK] Publicando en Artifactory (libs-snapshot-local)..."
           echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
-        # El .jar real se sube como artifact del workflow:
+
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
@@ -80,16 +104,35 @@ jobs:
 
       - name: Component Test (contract testing vs mock server)
         run: |
-          echo "🧪 [MOCK] Levantando mock server de dependencias..."
           echo "🧪 [MOCK] Validando contratos de /api/v1/exchange-rates..."
           echo "✅ Component tests: PASSED"
 
       - name: SCA Xray
         run: |
           echo "🔍 [MOCK] Escaneando dependencias Maven con JFrog Xray..."
-          DEPS=$(mvn -B dependency:list 2>/dev/null | grep -c ':compile\|:runtime' || true)
-          echo "   Dependencias detectadas: $DEPS"
           echo "✅ SCA Xray: PASSED"
+
+      - name: Jira - Construcción Done
+        if: ${{ github.event.inputs.change_ticket != '' }}
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ github.event.inputs.change_ticket }}
+          TARGET_STATUS: 'Construcción Done'
+        run: |
+          TRANSITION_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            | jq -r --arg s "$TARGET_STATUS" '.transitions[] | select(.to.name==$s) | .id')
+          if [ -z "$TRANSITION_ID" ]; then
+            echo "⚠️ No hay transición hacia '$TARGET_STATUS'. Continuando."
+            exit 0
+          fi
+          curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}"
+          echo "📋 $TICKET → '$TARGET_STATUS' (CI de construcción completado)"
 
   # =========================================================
   # CD - Despliegue Continuo
@@ -114,21 +157,31 @@ jobs:
       - name: Build and Push Registry
         run: |
           IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ github.event.inputs.version }}"
-          echo "🐳 Construyendo imagen con el Dockerfile del repo..."
           docker build -t "$IMAGE" .
           echo "🐳 [MOCK] docker push $IMAGE (registry no existe en la demo)"
           echo "✅ Imagen construida: $IMAGE"
 
       - name: Set Runners
         run: |
-          echo "🏃 [MOCK] Seleccionando self-hosted runners con acceso al cluster DEV..."
-          echo "   Runner group: rg-k8s-dev | Labels: [self-hosted, dev, k8s]"
+          echo "🏃 [MOCK] Runner group: rg-k8s-dev | Labels: [self-hosted, dev, k8s]"
           echo "✅ Runners configurados"
 
       - name: Deploy to Kubernetes Cluster
         run: |
-          echo "🚀 [MOCK] kubectl config use-context $K8S_CLUSTER"
-          echo "🚀 [MOCK] helm upgrade --install ${{ github.event.inputs.component }} ./chart \\"
-          echo "          --namespace $K8S_NAMESPACE --set image.tag=${{ github.event.inputs.version }}"
-          echo "🚀 [MOCK] kubectl rollout status deployment/${{ github.event.inputs.component }} -n $K8S_NAMESPACE"
-          echo "✅ Despliegue en DEV completado"
+          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ github.event.inputs.version }}"
+          echo "🚀 [MOCK] helm upgrade --install ... (cluster no existe en la demo)"
+          echo "🚀 Simulando el despliegue levantando el contenedor en el runner..."
+          docker run -d --name ms-demo -p 8080:8080 "$IMAGE"
+
+      - name: Smoke Test (verificación post-deploy)
+        run: |
+          echo "⏳ Esperando readiness..."
+          for i in $(seq 1 30); do
+            curl -sf localhost:8080/q/health/ready && break
+            sleep 2
+          done
+          echo ""
+          echo "🧪 Probando endpoints:"
+          curl -sf localhost:8080/api/v1/exchange-rates; echo ""
+          curl -sf "localhost:8080/api/v1/exchange-rates/USD/convert?amount=100"; echo ""
+          echo "✅ Servicio desplegado y respondiendo en DEV"
