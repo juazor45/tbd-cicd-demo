@@ -1,0 +1,47 @@
+name: Consulta-Estado
+
+# Asistente de estado del release: cualquier usuario del repo puede
+# consultarlo desde Actions → Consulta-Estado → Run workflow → ticket.
+# El reporte aparece en el Summary del run (sin instalar nada).
+on:
+  workflow_dispatch:
+    inputs:
+      ticket:
+        description: 'Ticket Jira a consultar (ej. SCRUM-10)'
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  consultar:
+    name: Estado de ${{ github.event.inputs.ticket }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ejecutar asistente de estado
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TICKET: ${{ github.event.inputs.ticket }}
+        run: |
+          python3 scripts/release-status.py "$TICKET" | tee reporte.txt
+
+      - name: Publicar reporte en el Summary
+        if: always()
+        run: |
+          {
+            echo "## 🔎 Estado del release — ${{ github.event.inputs.ticket }}"
+            echo ""
+            echo '```'
+            cat reporte.txt
+            echo '```'
+            echo ""
+            echo "> Consulta ejecutada por @${{ github.actor }} — $(date -u '+%Y-%m-%d %H:%M UTC')"
+          } >> "$GITHUB_STEP_SUMMARY"
