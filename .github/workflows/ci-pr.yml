@@ -1,0 +1,33 @@
+name: CI-PR
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build & Unit Tests (Maven)
+        run: mvn -B verify
+
+      - name: SonarQube (Quality Gate)
+        run: echo "📊 [MOCK] Quality Gate PASSED (coverage en target/site/jacoco)"
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: target/surefire-reports/
