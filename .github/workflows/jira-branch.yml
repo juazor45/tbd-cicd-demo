@@ -1,0 +1,79 @@
+name: Jira-Branch
+
+# Se dispara al crear una rama en el repositorio.
+# Convención TBD: la rama debe incluir la key del ticket Jira.
+#   feature/SCRUM-6-nueva-api  |  fix/SCRUM-12-bug-conversion
+on:
+  create
+
+jobs:
+  jira-construccion-doing:
+    name: Jira → Construcción Doing
+    # Solo ramas (el evento create también dispara con tags) y nunca el trunk
+    if: ${{ github.ref_type == 'branch' && github.ref_name != 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extraer ticket del nombre de la rama
+        id: ticket
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          echo "🌿 Rama creada: $BRANCH"
+          TICKET=$(echo "$BRANCH" | grep -oE '[A-Z][A-Z0-9]+-[0-9]+' | head -1 || true)
+          if [ -z "$TICKET" ]; then
+            echo "❌ La rama no cumple la convención de nombres."
+            echo "   Formato esperado: feature/SCRUM-6-descripcion (debe incluir la key del ticket Jira)"
+            exit 1
+          fi
+          echo "🎫 Ticket detectado: $TICKET"
+          echo "ticket=$TICKET" >> "$GITHUB_OUTPUT"
+
+      - name: Verificar que el ticket exista en Jira
+        id: verify
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ steps.ticket.outputs.ticket }}
+        run: |
+          echo "📋 Consultando $TICKET en Jira..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET?fields=status,summary")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ El ticket $TICKET no existe en Jira (HTTP $HTTP_CODE)."
+            echo "   Crea el ticket primero o corrige el nombre de la rama."
+            exit 1
+          fi
+
+          SUMMARY=$(echo "$BODY" | jq -r '.fields.summary')
+          STATUS=$(echo "$BODY" | jq -r '.fields.status.name')
+          echo "✅ Ticket válido: [$TICKET] $SUMMARY (estado actual: $STATUS)"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Transicionar a Construcción Doing
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ steps.ticket.outputs.ticket }}
+          CURRENT_STATUS: ${{ steps.verify.outputs.status }}
+          TARGET_STATUS: 'Construcción Doing'
+        run: |
+          if [ "$CURRENT_STATUS" = "$TARGET_STATUS" ]; then
+            echo "ℹ️ $TICKET ya está en '$TARGET_STATUS'. Nada que hacer."
+            exit 0
+          fi
+          TRANSITION_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            | jq -r --arg s "$TARGET_STATUS" '.transitions[] | select(.to.name==$s) | .id')
+          if [ -z "$TRANSITION_ID" ]; then
+            echo "❌ No existe transición hacia '$TARGET_STATUS' desde '$CURRENT_STATUS'."
+            exit 1
+          fi
+          curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
+            -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}"
+          echo "📋 $TICKET → '$TARGET_STATUS' (desarrollo iniciado con la rama ${{ github.ref_name }})"
