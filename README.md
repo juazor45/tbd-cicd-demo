@@ -1,91 +1,38 @@
-# tbd-cicd-demo
+# ms-exchange-rate (Quarkus)
 
-Repositorio de prueba con estrategia **Trunk-Based Development (TBD)** y pipelines CI/CD mockeados (`workflow_dispatch`) para los ambientes **DEV** y **CERT**.
+Microservicio demo de tipos de cambio contra el Sol peruano (PEN), construido con **Quarkus 3 + Java 17 + Maven**. Parte del repo de prueba TBD + CI/CD.
 
-## Estrategia de ramas: Trunk-Based Development
+## Endpoints
 
-```
-main (trunk) ──●──●──●──●──●──●──●──●──► siempre desplegable
-                \    /  \      /
-    feature/x    ●──●    \    /          ramas cortas (< 2 días)
-    fix/y                 ●──●           merge vía Pull Request
-```
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/v1/exchange-rates` | Lista todas las divisas (USD, EUR, CLP) |
+| GET | `/api/v1/exchange-rates/{currency}` | Tipo de cambio de una divisa (404 si no existe) |
+| GET | `/api/v1/exchange-rates/{currency}/convert?amount=100` | Convierte un monto a PEN (400 sin amount) |
+| GET | `/q/health/live` / `/q/health/ready` | Probes para Kubernetes |
 
-### Reglas
-
-| Regla | Detalle |
-|---|---|
-| Trunk único | `main` es la única rama de larga vida y siempre está en estado desplegable |
-| Ramas cortas | `feature/*`, `fix/*` viven máximo 1–2 días y nacen desde `main` |
-| Integración frecuente | Merge a `main` mínimo 1 vez al día vía Pull Request |
-| PR pequeños | Cambios pequeños y revisables (< 400 líneas idealmente) |
-| Sin ramas de release largas | Se despliega desde `main` usando tags/versiones; si se necesita hotfix, se hace en `main` y se cherry-pick al tag |
-| Feature flags | Funcionalidad incompleta se integra apagada detrás de un flag, no en ramas largas |
-
-### Convención de nombres
-
-- `feature/JIRA-123-descripcion-corta`
-- `fix/JIRA-456-descripcion-corta`
-
-### Flujo de trabajo
+## Desarrollo local
 
 ```bash
-git checkout main && git pull
-git checkout -b feature/JIRA-123-nueva-api
-# ... commits pequeños ...
-git push -u origin feature/JIRA-123-nueva-api
-# Abrir PR → checks (CI) → review → squash merge a main → borrar rama
+# Modo dev con live reload (la joya de Quarkus)
+mvn quarkus:dev
+
+# Probar
+curl localhost:8080/api/v1/exchange-rates
+curl localhost:8080/api/v1/exchange-rates/USD/convert?amount=100
+
+# Tests + coverage (JaCoCo en target/jacoco-report)
+mvn verify
+
+# Empaquetar (fast-jar en target/quarkus-app/)
+mvn package
+java -jar target/quarkus-app/quarkus-run.jar
+
+# Imagen Docker
+docker build -t ms-exchange-rate:local .
 ```
 
-## Pipelines (workflow_dispatch)
+## Pipelines
 
-Ambos pipelines se ejecutan manualmente desde **Actions → seleccionar workflow → Run workflow**.
-
-### `CICD-DEV` (.github/workflows/cicd-dev.yml)
-
-| Fase | Steps |
-|---|---|
-| **CI** | Prepare → Get Secrets (HashiCorp Vault) → SonarQube → Fortify → Publish Artifact → Component Test (mock server) → SCA Xray |
-| **CD** | Prepare → Build & Push Registry → Set Runners → Deploy to Kubernetes Cluster |
-
-### `CICD-CERT` (.github/workflows/cicd-cert.yml)
-
-Mismos steps, con diferencias propias de certificación:
-
-- Requiere input `change_ticket` (ticket de cambio Jira).
-- Component tests contra **dependencias reales** (no mock server).
-- Policies de seguridad más estrictas (sin waivers de críticas/altas).
-- El job de CD usa `environment: cert` → permite configurar **required reviewers** (approval gate) en *Settings → Environments → cert*.
-
-> Todos los steps están **mockeados** con `echo` para fines de prueba/demostración. Para hacerlos reales, reemplazar cada bloque `run` por las actions/CLIs correspondientes (sonarsource/sonarqube-scan-action, fortify, jfrog CLI, hashicorp/vault-action, azure/k8s-deploy, etc.).
-
-## Configuración recomendada del repo (para reforzar TBD)
-
-1. **Settings → Branches → Branch protection rule** para `main`:
-   - ✅ Require a pull request before merging (1+ approval)
-   - ✅ Require status checks to pass (job `ci`)
-   - ✅ Require branches to be up to date
-   - ✅ Block force pushes / deletions
-2. **Settings → General**: habilitar solo *Squash merging* y *Automatically delete head branches*.
-3. **Settings → Environments**: crear `dev` y `cert`; en `cert` agregar *Required reviewers*.
-
-O ejecuta el script incluido:
-
-```bash
-./scripts/setup-repo.sh <owner> <repo>
-```
-
-## Estructura
-
-```
-.
-├── .github/workflows/
-│   ├── cicd-dev.yml
-│   └── cicd-cert.yml
-├── docs/
-│   └── branching-strategy.md
-├── scripts/
-│   └── setup-repo.sh
-└── README.md
-```
-
+- `ci-pr.yml`: se dispara en cada PR hacia `main` → `mvn verify` real (gate de TBD).
+- `cicd-dev.yml` / `cicd-cert.yml`: `workflow_dispatch` con CI (build real + gates mockeados de SonarQube/Fortify/Xray/Vault) y CD (docker build real + deploy mockeado a K8s). Cert incluye validación del ticket de cambio en Jira y approval gate vía environment.

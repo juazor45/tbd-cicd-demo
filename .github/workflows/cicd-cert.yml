@@ -10,9 +10,9 @@ on:
       component:
         description: 'Componente / microservicio a desplegar'
         required: true
-        default: 'ms-demo'
+        default: 'ms-exchange-rate'
       change_ticket:
-        description: 'Ticket de cambio en Jira (ej. CHG-1234)'
+        description: 'Ticket de cambio en Jira (ej. DEMO-1)'
         required: true
       run_cd:
         description: '¿Ejecutar despliegue (CD) después del CI?'
@@ -27,9 +27,6 @@ env:
   K8S_NAMESPACE: ns-cert
 
 jobs:
-  # =========================================================
-  # CI - Integración Continua (gates más estrictos en CERT)
-  # =========================================================
   ci:
     name: CI (${{ github.event.inputs.component }})
     runs-on: ubuntu-latest
@@ -39,97 +36,109 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare
+      - name: Prepare (JDK 17 + Maven)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Validate Jira Change Ticket
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ github.event.inputs.change_ticket }}
         run: |
-          echo "🔧 [MOCK] Preparando workspace..."
-          echo "Componente     : ${{ github.event.inputs.component }}"
-          echo "Versión        : ${{ github.event.inputs.version }}"
-          echo "Change ticket  : ${{ github.event.inputs.change_ticket }}"
-          echo "Branch         : ${{ github.ref_name }}"
-          echo "Ambiente       : $ENVIRONMENT"
-          echo "📋 [MOCK] Validando estado del cambio en Jira... APROBADO"
+          if [ -z "$JIRA_BASE_URL" ]; then
+            echo "📋 [MOCK] Secrets de Jira no configurados; validación simulada de $TICKET → APROBADO"
+            exit 0
+          fi
+          echo "📋 Consultando estado de $TICKET en Jira..."
+          STATUS=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            -H "Accept: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET?fields=status" | jq -r '.fields.status.name')
+          echo "Estado actual: $STATUS"
+          if [ "$STATUS" != "Aprobado" ]; then
+            echo "❌ El ticket $TICKET no está Aprobado (estado: $STATUS). Abortando."
+            exit 1
+          fi
+          echo "✅ Ticket aprobado"
 
       - name: Get Secrets (HashiCorp Vault)
         run: |
           echo "🔐 [MOCK] Autenticando contra HashiCorp Vault (AppRole)..."
           echo "🔐 [MOCK] Leyendo secretos de path: secret/data/cert/${{ github.event.inputs.component }}"
-          echo "✅ Secretos obtenidos e inyectados como variables enmascaradas"
+          echo "✅ Secretos obtenidos"
+
+      - name: Build & Unit Tests (Maven)
+        run: mvn -B verify
 
       - name: SonarQube (SAST / Quality Gate)
         run: |
-          echo "📊 [MOCK] Ejecutando análisis SonarQube (perfil cert - estricto)..."
-          echo "   Coverage: 84.2% (mínimo cert: 80%) | Vulnerabilities: 0"
+          echo "📊 [MOCK] Análisis SonarQube (perfil cert - estricto)..."
           echo "✅ Quality Gate: PASSED"
 
       - name: Fortify (SAST)
         run: |
-          echo "🛡️ [MOCK] Ejecutando escaneo Fortify SCA (policy cert)..."
-          echo "   Critical: 0 | High: 0 (policy cert: 0 críticas y 0 altas)"
+          echo "🛡️ [MOCK] Escaneo Fortify (policy cert: 0 críticas y 0 altas)..."
           echo "✅ Security Gate Fortify: PASSED"
 
       - name: Publish Artifact
         id: publish
         run: |
           ARTIFACT_ID="${{ github.event.inputs.component }}-${{ github.event.inputs.version }}"
-          echo "📦 [MOCK] Promoviendo/publicando artefacto en Artifactory..."
-          echo "   Artefacto: $ARTIFACT_ID.jar"
-          echo "   Repo: libs-release-candidate-local"
+          echo "📦 Artefacto generado: target/quarkus-app/ (fast-jar Quarkus)"
+          echo "📦 [MOCK] Promoviendo a Artifactory (libs-release-candidate-local)..."
           echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
-          echo "✅ Artefacto publicado: $ARTIFACT_ID"
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.publish.outputs.artifact_id }}
+          path: target/quarkus-app/
 
       - name: Component Test (dependencias reales)
         run: |
-          echo "🧪 [MOCK] Ejecutando component tests contra dependencias REALES de cert..."
-          echo "   Tests ejecutados: 42 | Passed: 42 | Failed: 0"
+          echo "🧪 [MOCK] Component tests contra dependencias REALES de cert..."
           echo "✅ Component tests: PASSED"
 
       - name: SCA Xray
         run: |
-          echo "🔍 [MOCK] Ejecutando análisis SCA con JFrog Xray (policy cert)..."
-          echo "   Dependencias escaneadas: 137"
-          echo "   Violations: 0 (policy cert no admite waivers de críticas/altas)"
+          echo "🔍 [MOCK] SCA Xray (policy cert, sin waivers)..."
           echo "✅ SCA Xray: PASSED"
 
-  # =========================================================
-  # CD - Despliegue Continuo (con approval gate vía environment)
-  # =========================================================
   cd:
     name: CD → CERT
     runs-on: ubuntu-latest
     needs: ci
     if: ${{ github.event.inputs.run_cd == 'true' }}
-    environment: cert   # configurar required reviewers en Settings > Environments
+    environment: cert
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Prepare
         run: |
-          echo "🔧 [MOCK] Preparando despliegue en CERT..."
+          echo "🔧 Preparando despliegue en CERT..."
           echo "Artefacto     : ${{ needs.ci.outputs.artifact_id }}"
           echo "Change ticket : ${{ github.event.inputs.change_ticket }}"
-          echo "Cluster       : $K8S_CLUSTER"
-          echo "Namespace     : $K8S_NAMESPACE"
 
       - name: Build and Push Registry
         run: |
           IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ github.event.inputs.version }}"
-          echo "🐳 [MOCK] docker build -t $IMAGE ."
+          echo "🐳 Construyendo imagen con el Dockerfile del repo..."
+          docker build -t "$IMAGE" .
           echo "🐳 [MOCK] docker push $IMAGE"
-          echo "✅ Imagen publicada en registry: $IMAGE"
+          echo "✅ Imagen construida: $IMAGE"
 
       - name: Set Runners
         run: |
-          echo "🏃 [MOCK] Seleccionando self-hosted runners con acceso al cluster CERT..."
-          echo "   Runner group: rg-k8s-cert | Labels: [self-hosted, cert, k8s]"
+          echo "🏃 [MOCK] Runner group: rg-k8s-cert | Labels: [self-hosted, cert, k8s]"
           echo "✅ Runners configurados"
 
       - name: Deploy to Kubernetes Cluster
         run: |
-          echo "🚀 [MOCK] kubectl config use-context $K8S_CLUSTER"
-          echo "🚀 [MOCK] helm upgrade --install ${{ github.event.inputs.component }} ./chart \\"
-          echo "          --namespace $K8S_NAMESPACE \\"
-          echo "          --set image.tag=${{ github.event.inputs.version }}"
-          echo "🚀 [MOCK] kubectl rollout status deployment/${{ github.event.inputs.component }} -n $K8S_NAMESPACE"
-          echo "📋 [MOCK] Actualizando ticket ${{ github.event.inputs.change_ticket }} en Jira → Desplegado en CERT"
+          echo "🚀 [MOCK] helm upgrade --install ${{ github.event.inputs.component }} ./chart -n $K8S_NAMESPACE"
+          echo "📋 [MOCK] Actualizando ${{ github.event.inputs.change_ticket }} en Jira → Desplegado en CERT"
           echo "✅ Despliegue en CERT completado"
