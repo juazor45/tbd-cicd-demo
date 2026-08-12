@@ -44,8 +44,9 @@ git checkout main && git pull
 git checkout -b feature/SCRUM-11-nueva-api   # dispara Jira-Branch
 # ... commits pequeños ...
 git push -u origin feature/SCRUM-11-nueva-api
-# Abrir PR → check CI → squash merge → la rama se borra sola
 ```
+
+Después: se ejecuta `CICD-DEV` desde la rama para desplegar y probar en desarrollo (queda el status `validado-en-dev` sobre el commit), se abre el Pull Request, se aprueba, y se hace squash merge a `main`. La rama se borra automáticamente. La promoción a certificación se lanza después, ya desde `main`.
 
 ---
 
@@ -75,8 +76,8 @@ docker build -t ms-exchange-rate:local .
 |---|---|---|
 | `jira-branch.yml` | Al crear una rama | Extrae la key del nombre, verifica el ticket en Jira y lo mueve a **Construcción Doing** |
 | `ci-pr.yml` | En cada PR hacia `main` | `mvn verify` real — es el check obligatorio del ruleset |
-| `cicd-dev.yml` | Manual (`workflow_dispatch`) | CI completo + deploy a dev con smoke test → **Construcción Done** |
-| `cicd-cert.yml` | Manual (`workflow_dispatch`) | Valida el ticket, CI con policies estrictas, aprobación manual y deploy → **Congelamiento** y **QA Testing Doing** |
+| `cicd-dev.yml` | Manual, desde cualquier rama | CI completo + deploy a dev con smoke test → **Construcción Done**. Al terminar, marca el commit con el status `validado-en-dev` |
+| `cicd-cert.yml` | Manual, **solo desde `main`** | Valida origen y ticket, CI con policies estrictas, aprobación manual y deploy → **Congelamiento** y **QA Testing Doing** |
 
 **Etapas de CI**: Prepare → Get Secrets (Vault) → Build & Tests (Maven) → SonarQube → Fortify → Publish Artifact → Component Test → SCA Xray
 
@@ -85,6 +86,18 @@ docker build -t ms-exchange-rate:local .
 > Los análisis de seguridad/calidad y el despliegue a Kubernetes están **simulados**. El build de Maven, la construcción de la imagen Docker y el smoke test son reales.
 
 Los workflows manuales llevan el ticket en el título del run (`run-name`), lo que permite correlacionar cada ejecución con su release.
+
+### Controles del flujo
+
+| Control | Qué impide |
+|---|---|
+| Check `CI` requerido en el PR | Integrar código que no compila o con tests rotos |
+| Check `validado-en-dev` requerido | Mergear un commit que no fue desplegado y probado en desarrollo. El status se asocia al SHA: si alguien empuja un commit nuevo al PR, el merge se bloquea hasta volver a validar |
+| Guard de rama en `cicd-cert.yml` | Certificar código que no pasó por Pull Request (el pipeline aborta si no corre desde `main`) |
+| Estado del ticket en `cicd-cert.yml` | Promover a certificación un cambio que no completó la fase de construcción |
+| Approval del environment `cert` | Desplegar en certificación sin aprobación humana |
+
+Como refuerzo, el environment `cert` restringe los despliegues a la rama `main`, de modo que el control no depende únicamente del YAML.
 
 ---
 
@@ -154,9 +167,9 @@ export SLACK_APP_TOKEN="xapp-..."   # solo para el bot
 
 ### Protección del trunk
 
-En **Settings → Rules → Rulesets**, sobre `main`: PR obligatorio, check `CI` requerido, bloqueo de force push, solo squash merge y borrado automático de ramas. El script `scripts/setup-repo.sh` lo aplica con `gh` CLI.
+En **Settings → Rules → Rulesets**, sobre `main`: PR obligatorio, checks requeridos `CI` y `validado-en-dev`, bloqueo de force push, solo squash merge y borrado automático de ramas. El script `scripts/setup-repo.sh` lo aplica con `gh` CLI.
 
-En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Required reviewers* para el approval gate.
+En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Required reviewers* para el approval gate y restringir *Deployment branches* a `main`.
 
 ---
 
