@@ -164,3 +164,32 @@ jobs:
           curl -sf localhost:8080/api/v1/exchange-rates; echo ""
           curl -sf "localhost:8080/api/v1/exchange-rates/USD/convert?amount=100"; echo ""
           echo "✅ Servicio desplegado y respondiendo en DEV"
+
+  # =========================================================
+  # Marca el commit como validado en DEV.
+  # Ese status se asocia al SHA, no a la rama: si alguien empuja
+  # un commit nuevo al PR, el nuevo SHA no lo tendrá y el merge
+  # quedará bloqueado hasta volver a validar en DEV.
+  # =========================================================
+  marcar-validado:
+    name: validado-en-dev
+    runs-on: ubuntu-latest
+    needs: [ci, cd]
+    if: ${{ success() && github.ref_name != 'main' }}
+    permissions:
+      statuses: write
+    steps:
+      - name: Publicar status en el commit
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d '{
+              "state": "success",
+              "context": "validado-en-dev",
+              "description": "Desplegado y probado en DEV",
+              "target_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }'
+          echo "✅ Commit ${{ github.sha }} marcado como validado en DEV"
+          echo "   Rama: ${{ github.ref_name }}"
