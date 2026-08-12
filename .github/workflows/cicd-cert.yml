@@ -37,6 +37,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validar que el código proviene del trunk
+        if: ${{ github.ref_name != 'main' }}
+        run: |
+          echo "❌ CICD-CERT solo puede ejecutarse desde 'main'."
+          echo "   Rama recibida: ${{ github.ref_name }}"
+          echo "   El código debe integrarse al trunk vía Pull Request (con CI y validado-en-dev) antes de certificar."
+          exit 1
+
       - name: Prepare (JDK 17 + Maven)
         uses: actions/setup-java@v4
         with:
