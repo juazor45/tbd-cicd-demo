@@ -19,6 +19,7 @@ Variables de entorno:
 """
 
 import json
+import logging
 import os
 import sys
 
@@ -26,6 +27,7 @@ from anthropic import Anthropic
 from tools import TOOL_SCHEMAS, TOOL_FUNCTIONS
 
 MODEL = "claude-sonnet-4-6"
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """Eres el DeployGo Assistant, el asistente del proceso de entrega de software del equipo.
 
@@ -49,10 +51,12 @@ Estilo de respuesta:
 def ejecutar_tool(nombre, args):
     fn = TOOL_FUNCTIONS.get(nombre)
     if not fn:
+        logger.warning("Herramienta desconocida solicitada: %s", nombre)
         return {"error": f"Herramienta desconocida: {nombre}"}
     try:
         return fn(**args)
     except Exception as e:
+        logger.exception("Fallo ejecutando tool %s(%s)", nombre, args)
         return {"error": f"Fallo ejecutando {nombre}: {e}"}
 
 
@@ -94,6 +98,8 @@ def verificar_entorno():
 
 
 def main():
+    nivel = logging.DEBUG if os.environ.get("DEBUG") == "1" else logging.INFO
+    logging.basicConfig(level=nivel, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     verificar_entorno()
     client = Anthropic()
     mensajes = []
