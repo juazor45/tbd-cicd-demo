@@ -27,10 +27,14 @@ env:
   K8S_CLUSTER: aks-cert-cluster
   K8S_NAMESPACE: ns-cert
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: CI (${{ github.event.inputs.component }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       artifact_id: ${{ steps.publish.outputs.artifact_id }}
     steps:
@@ -38,7 +42,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validar que el código proviene del trunk
-        if: ${{ github.ref_name != 'main' }}
+        if: ${{ github.ref_name \!= 'main' }}
         run: |
           echo "❌ CICD-CERT solo puede ejecutarse desde 'main'."
           echo "   Rama recibida: ${{ github.ref_name }}"
@@ -70,7 +74,7 @@ jobs:
           fi
           echo "Estado actual: $STATUS"
 
-          if [ "$STATUS" != "Construcción Done" ] && [ "$STATUS" != "Congelamiento Doing" ]; then
+          if [ "$STATUS" \!= "Construcción Done" ] && [ "$STATUS" \!= "Congelamiento Doing" ]; then
             echo "❌ Para promover a CERT el ticket debe estar en 'Construcción Done' (está en '$STATUS'). Abortando."
             exit 1
           fi
@@ -153,6 +157,7 @@ jobs:
     needs: ci
     if: ${{ github.event.inputs.run_cd == 'true' }}
     environment: cert
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
