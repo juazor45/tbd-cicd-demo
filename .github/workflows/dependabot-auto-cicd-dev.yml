@@ -1,0 +1,46 @@
+name: Dependabot-Auto-CICD-DEV
+
+# Dispara CICD-DEV automaticamente cuando Dependabot abre o actualiza un PR,
+# para que el check requerido "validado-en-dev" se genere solo, sin que
+# alguien tenga que lanzarlo a mano por cada bump de dependencia.
+#
+# cicd-dev.yml no cambia: este workflow solo lo invoca via la API de
+# GitHub Actions (workflow_dispatch) usando la rama del PR.
+#
+# Usa pull_request_target (no pull_request) porque los PRs de Dependabot
+# corren con permisos de solo lectura y sin secrets bajo pull_request. Esto
+# es seguro aqui porque este workflow NO hace checkout ni ejecuta codigo del
+# PR: solo lee metadata (numero de PR, nombre de rama) y dispara otro workflow.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+
+permissions:
+  actions: write   # necesario para poder disparar cicd-dev.yml via la API
+  contents: read
+
+concurrency:
+  group: dependabot-auto-cicd-dev-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  disparar-cicd-dev:
+    name: Disparar CICD-DEV para el PR de Dependabot
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - name: Disparar CICD-DEV sobre la rama del PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RAMA: ${{ github.event.pull_request.head.ref }}
+        run: |
+          echo "🤖 PR de Dependabot #${{ github.event.pull_request.number }} (rama: $RAMA). Disparando CICD-DEV..."
+          gh workflow run cicd-dev.yml \
+            --repo "${{ github.repository }}" \
+            --ref "$RAMA" \
+            -f version=1.0.0-SNAPSHOT \
+            -f component=ms-exchange-rate \
+            -f run_cd=true
+          echo "✅ CICD-DEV disparado. El check 'validado-en-dev' se publicara sobre el commit de este PR al terminar."
