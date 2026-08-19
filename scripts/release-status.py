@@ -22,38 +22,19 @@ Sin dependencias externas: solo librería estándar de Python 3.8+.
 El template se lee con un parser mínimo (no requiere PyYAML).
 """
 
-import base64
-import json
 import os
-import ssl
 import sys
-import urllib.request
-from datetime import datetime, timezone
+
+from http_client import age as fmt_age
+from http_client import gh_headers as _gh_headers
+from http_client import http_get, jira_headers
 
 WORKFLOWS = ["Jira-Branch", "CI-PR", "CICD-DEV", "CICD-CERT"]
 TEMPLATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "process-template.yml")
 
-# En Windows corporativo (schannel/proxy) puede fallar la revocación de certificados.
-# Si ocurre, exporta SSL_NO_VERIFY=1 solo para pruebas locales.
-SSL_CTX = ssl.create_default_context()
-if os.environ.get("SSL_NO_VERIFY") == "1":
-    SSL_CTX.check_hostname = False
-    SSL_CTX.verify_mode = ssl.CERT_NONE
 
-
-def http_get(url, headers=None):
-    req = urllib.request.Request(url, headers=headers or {})
-    try:
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        try:
-            return e.code, json.loads(e.read().decode("utf-8"))
-        except Exception:
-            return e.code, {}
-    except Exception as e:
-        print(f"  ⚠️ Error de conexión con {url.split('/')[2]}: {e}")
-        return 0, {}
+def gh_headers():
+    return _gh_headers("release-status-demo")
 
 
 # ----------------------------------------------------------------------
@@ -67,10 +48,9 @@ def get_jira_status(ticket):
         print("❌ Faltan JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN en el entorno.")
         sys.exit(1)
 
-    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
     code, data = http_get(
         f"{base}/rest/api/3/issue/{ticket}?fields=status,summary,updated",
-        headers={"Authorization": f"Basic {auth}", "Accept": "application/json"},
+        headers=jira_headers(),
     )
     if code != 200:
         print(f"❌ No se pudo leer {ticket} en Jira (HTTP {code}). ¿Existe? ¿Credenciales OK?")
@@ -86,14 +66,6 @@ def get_jira_status(ticket):
 # ----------------------------------------------------------------------
 # 2) GITHUB: runs de los workflows y job/step actual o fallido
 # ----------------------------------------------------------------------
-def gh_headers():
-    h = {"Accept": "application/vnd.github+json", "User-Agent": "release-status-demo"}
-    tok = os.environ.get("GITHUB_TOKEN")
-    if tok:
-        h["Authorization"] = f"Bearer {tok}"
-    return h
-
-
 def get_workflow_runs(repo):
     """Última ejecución de cada workflow de interés."""
     code, data = http_get(
@@ -161,15 +133,6 @@ def load_template():
 # ----------------------------------------------------------------------
 # Reporte
 # ----------------------------------------------------------------------
-def fmt_age(iso):
-    try:
-        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        mins = int((datetime.now(timezone.utc) - dt).total_seconds() // 60)
-        return f"hace {mins} min" if mins < 120 else f"hace {mins // 60} h"
-    except Exception:
-        return ""
-
-
 def main():
     if len(sys.argv) < 2:
         print("Uso: python release-status.py <TICKET>   (ej. SCRUM-10)")

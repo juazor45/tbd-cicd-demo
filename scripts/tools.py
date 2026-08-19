@@ -12,58 +12,12 @@ Cada función es una "tool" que el agente puede invocar:
 Sin dependencias externas salvo `anthropic` (que usa el agente, no este módulo).
 """
 
-import base64
-import json
 import os
-import ssl
-import urllib.request
-from datetime import datetime, timezone
+
+from http_client import age, gh_headers, http_get, jira_headers
 
 WORKFLOWS = ["Jira-Branch", "CI-PR", "CICD-DEV", "CICD-CERT"]
 TEMPLATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "process-template.yml")
-
-SSL_CTX = ssl.create_default_context()
-if os.environ.get("SSL_NO_VERIFY") == "1":
-    SSL_CTX.check_hostname = False
-    SSL_CTX.verify_mode = ssl.CERT_NONE
-
-
-def _http_get(url, headers):
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as r:
-            return r.status, json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        try:
-            return e.code, json.loads(e.read().decode("utf-8"))
-        except Exception:
-            return e.code, {}
-    except Exception as e:
-        return 0, {"error": str(e)}
-
-
-def _jira_headers():
-    email = os.environ.get("JIRA_EMAIL", "")
-    token = os.environ.get("JIRA_API_TOKEN", "")
-    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
-    return {"Authorization": f"Basic {auth}", "Accept": "application/json"}
-
-
-def _gh_headers():
-    h = {"Accept": "application/vnd.github+json", "User-Agent": "deploygo-assistant"}
-    tok = os.environ.get("GITHUB_TOKEN")
-    if tok:
-        h["Authorization"] = f"Bearer {tok}"
-    return h
-
-
-def _age(iso):
-    try:
-        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        m = int((datetime.now(timezone.utc) - dt).total_seconds() // 60)
-        return f"hace {m} min" if m < 120 else f"hace {m // 60} h"
-    except Exception:
-        return "fecha desconocida"
 
 
 # ----------------------------------------------------------------------
@@ -72,9 +26,9 @@ def _age(iso):
 def consultar_jira(ticket):
     """Estado actual de un ticket de cambio en Jira."""
     base = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
-    code, data = _http_get(
+    code, data = http_get(
         f"{base}/rest/api/3/issue/{ticket}?fields=status,summary,updated,assignee",
-        _jira_headers(),
+        jira_headers(),
     )
     if code != 200:
         return {"error": f"No se pudo leer {ticket} (HTTP {code}). Puede no existir o fallar la autenticación."}
@@ -85,7 +39,7 @@ def consultar_jira(ticket):
         "titulo": f["summary"],
         "estado": f["status"]["name"],
         "asignado_a": asignado,
-        "actualizado": _age(f.get("updated", "")),
+        "actualizado": age(f.get("updated", "")),
     }
 
 
@@ -97,8 +51,8 @@ def consultar_pipelines(rama=None, ticket=None):
       - display_title: los workflows manuales llevan el ticket en su run-name
     """
     repo = os.environ.get("GITHUB_REPO", "")
-    code, data = _http_get(
-        f"https://api.github.com/repos/{repo}/actions/runs?per_page=100", _gh_headers()
+    code, data = http_get(
+        f"https://api.github.com/repos/{repo}/actions/runs?per_page=100", gh_headers()
     )
     if code != 200:
         return {"error": f"No se pudieron leer los runs (HTTP {code}). Revisa GITHUB_REPO y GITHUB_TOKEN."}
@@ -123,7 +77,7 @@ def consultar_pipelines(rama=None, ticket=None):
             "estado": run["status"],
             "resultado": run["conclusion"] or "en curso",
             "rama": run["head_branch"],
-            "ejecutado": _age(run["created_at"]),
+            "ejecutado": age(run["created_at"]),
             "url": run["html_url"],
         })
 
@@ -140,8 +94,8 @@ def consultar_pipelines(rama=None, ticket=None):
 def detalle_ejecucion(run_id):
     """Jobs y steps de una ejecución: identifica en qué step va, falló o espera aprobación."""
     repo = os.environ.get("GITHUB_REPO", "")
-    code, data = _http_get(
-        f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/jobs", _gh_headers()
+    code, data = http_get(
+        f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/jobs", gh_headers()
     )
     if code != 200:
         return {"error": f"No se pudo leer el run {run_id} (HTTP {code})."}

@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+http_client.py — Cliente HTTP compartido para Jira y GitHub.
+
+Usado por tools.py (el agente) y release-status.py (el reporte de
+GitHub Actions), para no duplicar la lógica de autenticación, el
+manejo de SSL y el formateo de fechas relativas.
+
+Sin dependencias externas: solo librería estándar de Python 3.8+.
+"""
+
+import base64
+import json
+import os
+import ssl
+import urllib.request
+from datetime import datetime, timezone
+
+# En Windows corporativo (schannel/proxy) puede fallar la revocación de certificados.
+# Si ocurre, exporta SSL_NO_VERIFY=1 solo para pruebas locales.
+SSL_CTX = ssl.create_default_context()
+if os.environ.get("SSL_NO_VERIFY") == "1":
+    SSL_CTX.check_hostname = False
+    SSL_CTX.verify_mode = ssl.CERT_NONE
+
+
+def http_get(url, headers=None):
+    """GET genérico. Devuelve (status_code, dict). status 0 = error de conexión/parseo."""
+    req = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode("utf-8"))
+        except Exception:
+            return e.code, {}
+    except Exception as e:
+        return 0, {"error": str(e)}
+
+
+def jira_headers():
+    """Headers de autenticación Basic para la API de Jira (JIRA_EMAIL + JIRA_API_TOKEN)."""
+    email = os.environ.get("JIRA_EMAIL", "")
+    token = os.environ.get("JIRA_API_TOKEN", "")
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+    return {"Authorization": f"Basic {auth}", "Accept": "application/json"}
+
+
+def gh_headers(user_agent="deploygo-assistant"):
+    """Headers para la API de GitHub. GITHUB_TOKEN es opcional en repos públicos."""
+    h = {"Accept": "application/vnd.github+json", "User-Agent": user_agent}
+    tok = os.environ.get("GITHUB_TOKEN")
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
+    return h
+
+
+def age(iso):
+    """Formatea un timestamp ISO 8601 como 'hace N min' / 'hace N h'."""
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        m = int((datetime.now(timezone.utc) - dt).total_seconds() // 60)
+        return f"hace {m} min" if m < 120 else f"hace {m // 60} h"
+    except Exception:
+        return "fecha desconocida"

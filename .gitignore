@@ -4,3 +4,5 @@ target/
 *.iml
 .vscode/
 .quarkus/
+__pycache__/
+*.pyc
