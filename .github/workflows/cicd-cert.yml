@@ -27,10 +27,14 @@ env:
   K8S_CLUSTER: aks-cert-cluster
   K8S_NAMESPACE: ns-cert
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: CI (${{ github.event.inputs.component }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       artifact_id: ${{ steps.publish.outputs.artifact_id }}
     steps:
@@ -153,6 +157,7 @@ jobs:
     needs: ci
     if: ${{ github.event.inputs.run_cd == 'true' }}
     environment: cert
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4

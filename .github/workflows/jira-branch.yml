@@ -6,12 +6,16 @@ name: Jira-Branch
 on:
   create
 
+permissions:
+  contents: read
+
 jobs:
   jira-construccion-doing:
     name: Jira → Construcción Doing
     # Solo ramas (el evento create también dispara con tags) y nunca el trunk
     if: ${{ github.ref_type == 'branch' && github.ref_name != 'main' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verificar credenciales Jira
         env:

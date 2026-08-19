@@ -29,6 +29,9 @@ env:
   K8S_CLUSTER: aks-dev-cluster
   K8S_NAMESPACE: ns-dev
 
+permissions:
+  contents: read
+
 jobs:
   # =========================================================
   # CI - Integración Continua (build REAL con Java + Maven)
@@ -36,6 +39,7 @@ jobs:
   ci:
     name: CI (${{ github.event.inputs.component }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       artifact_id: ${{ steps.publish.outputs.artifact_id }}
     steps:
@@ -123,6 +127,7 @@ jobs:
     needs: ci
     if: ${{ github.event.inputs.run_cd == 'true' }}
     environment: dev
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -177,6 +182,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ci, cd]
     if: ${{ success() && github.ref_name != 'main' }}
+    timeout-minutes: 5
     permissions:
       statuses: write
     steps:
