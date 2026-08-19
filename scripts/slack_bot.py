@@ -24,7 +24,8 @@ import json
 import logging
 import os
 import re
-from collections import OrderedDict
+import time
+from collections import OrderedDict, deque
 
 from anthropic import Anthropic
 from slack_bolt import App
@@ -36,6 +37,9 @@ MODEL = "claude-sonnet-4-6"
 MAX_ITER = 8
 MAX_HILOS = 200              # límite de hilos activos en memoria (evita crecimiento indefinido)
 MAX_MENSAJES_POR_HILO = 40   # recorta el historial de un hilo muy largo
+RATE_LIMIT_MAX = 6           # máximo de preguntas...
+RATE_LIMIT_WINDOW_S = 60     # ...por usuario, cada N segundos
+MAX_USUARIOS_RATE_LIMIT = 500  # tope de usuarios trackeados en memoria
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("deploygo-slack-bot")
@@ -64,6 +68,31 @@ client = Anthropic()
 # para no crecer sin control en un proceso de larga duración (el bot no persiste
 # estado entre reinicios; esto solo acota la memoria mientras corre).
 _hilos: "OrderedDict[str, list]" = OrderedDict()
+
+
+# Ventanas de rate limit por usuario: {user_id: deque(timestamps)}. Igual que
+# _hilos, acotado en tamaño para no crecer sin control.
+_rate_limit: "OrderedDict[str, deque]" = OrderedDict()
+
+
+def _rate_limited(usuario_id):
+    """True si el usuario superó RATE_LIMIT_MAX consultas en los últimos RATE_LIMIT_WINDOW_S segundos."""
+    if not usuario_id:
+        return False
+    ahora = time.monotonic()
+    if usuario_id in _rate_limit:
+        _rate_limit.move_to_end(usuario_id)
+    else:
+        if len(_rate_limit) >= MAX_USUARIOS_RATE_LIMIT:
+            _rate_limit.popitem(last=False)
+        _rate_limit[usuario_id] = deque()
+    marcas = _rate_limit[usuario_id]
+    while marcas and ahora - marcas[0] > RATE_LIMIT_WINDOW_S:
+        marcas.popleft()
+    if len(marcas) >= RATE_LIMIT_MAX:
+        return True
+    marcas.append(ahora)
+    return False
 
 
 def _historial(hilo_id):
@@ -126,8 +155,12 @@ def consultar_agente(pregunta, hilo_id, on_tool=None):
     return "⚠️ El agente excedió el número de consultas permitidas."
 
 
-def responder(say, client_slack, canal, hilo, pregunta):
+def responder(say, client_slack, canal, hilo, pregunta, usuario=None):
     """Publica un mensaje de progreso, lo va actualizando y lo reemplaza con la respuesta."""
+    if _rate_limited(usuario):
+        logger.info("rate limit aplicado a usuario=%s", usuario)
+        say(text="⏳ Estás consultando muy seguido. Espera un minuto e intenta de nuevo.", thread_ts=hilo)
+        return
     placeholder = say(text="_Consultando Jira y GitHub…_", thread_ts=hilo)
     ts = placeholder["ts"]
     pasos = []
@@ -165,7 +198,7 @@ def cmd_release(ack, command, say, client):
     if re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", texto, re.IGNORECASE):
         texto = f"¿En qué va {texto.upper()}?"
     logger.info("slash /release user=%s canal=%s pregunta=%r", command.get("user_id"), command["channel_id"], texto)
-    responder(say, client, command["channel_id"], None, texto)
+    responder(say, client, command["channel_id"], None, texto, usuario=command.get("user_id"))
 
 
 @app.event("app_mention")
@@ -176,7 +209,7 @@ def on_mention(event, say, client):
         return
     hilo = event.get("thread_ts") or event["ts"]
     logger.info("mención user=%s canal=%s hilo=%s pregunta=%r", event.get("user"), event["channel"], hilo, pregunta)
-    responder(say, client, event["channel"], hilo, pregunta)
+    responder(say, client, event["channel"], hilo, pregunta, usuario=event.get("user"))
 
 
 @app.event("message")
@@ -186,7 +219,7 @@ def on_dm(event, say, client):
         return
     hilo = event.get("thread_ts") or event["ts"]
     logger.info("DM user=%s hilo=%s pregunta=%r", event.get("user"), hilo, event.get("text", ""))
-    responder(say, client, event["channel"], hilo, event.get("text", ""))
+    responder(say, client, event["channel"], hilo, event.get("text", ""), usuario=event.get("user"))
 
 
 if __name__ == "__main__":
