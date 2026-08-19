@@ -97,7 +97,7 @@ jobs:
           echo "✅ SCA Xray: PASSED"
 
       - name: Jira - Construcción Done
-        if: ${{ github.event.inputs.change_ticket \!= '' }}
+        if: ${{ github.event.inputs.change_ticket != '' }}
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
@@ -181,7 +181,7 @@ jobs:
     name: validado-en-dev
     runs-on: ubuntu-latest
     needs: [ci, cd]
-    if: ${{ success() && github.ref_name \!= 'main' }}
+    if: ${{ success() && github.ref_name != 'main' }}
     timeout-minutes: 5
     permissions:
       statuses: write

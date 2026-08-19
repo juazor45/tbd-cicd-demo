@@ -13,7 +13,7 @@ jobs:
   jira-construccion-doing:
     name: Jira → Construcción Doing
     # Solo ramas (el evento create también dispara con tags) y nunca el trunk
-    if: ${{ github.ref_type == 'branch' && github.ref_name \!= 'main' }}
+    if: ${{ github.ref_type == 'branch' && github.ref_name != 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -24,7 +24,7 @@ jobs:
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
           CODE=$(curl -s -o /dev/null -w "%{http_code}" -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/myself")
-          if [ "$CODE" \!= "200" ]; then
+          if [ "$CODE" != "200" ]; then
             echo "❌ Credenciales Jira inválidas en los secrets (HTTP $CODE contra /myself)."
             echo "   Revisa JIRA_BASE_URL (sin / final), JIRA_EMAIL y JIRA_API_TOKEN (una sola línea, sin espacios)."
             exit 1
@@ -59,7 +59,7 @@ jobs:
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | sed '$d')
 
-          if [ "$HTTP_CODE" \!= "200" ]; then
+          if [ "$HTTP_CODE" != "200" ]; then
             echo "❌ El ticket $TICKET no existe en Jira (HTTP $HTTP_CODE)."
             echo "   Crea el ticket primero o corrige el nombre de la rama."
             exit 1
