@@ -19,7 +19,7 @@ gh api -X PUT "repos/$OWNER/$REPO/branches/main/protection" \
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": []
+    "contexts": ["CI", "validado-en-dev"]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": {
