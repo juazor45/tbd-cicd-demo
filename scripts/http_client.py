@@ -12,10 +12,14 @@ Sin dependencias externas: solo librería estándar de Python 3.8+.
 
 import base64
 import json
+import logging
 import os
 import ssl
+import time
 import urllib.request
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 # En Windows corporativo (schannel/proxy) puede fallar la revocación de certificados.
 # Si ocurre, exporta SSL_NO_VERIFY=1 solo para pruebas locales.
@@ -26,17 +30,28 @@ if os.environ.get("SSL_NO_VERIFY") == "1":
 
 
 def http_get(url, headers=None):
-    """GET genérico. Devuelve (status_code, dict). status 0 = error de conexión/parseo."""
+    """GET genérico. Devuelve (status_code, dict). status 0 = error de conexión/parseo.
+
+    Loguea cada llamada (URL, status, duración) para poder auditar si Jira/GitHub
+    respondieron. Nunca loguea los headers: ahí va la autenticación.
+    """
+    inicio = time.monotonic()
     req = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as resp:
+            ms = int((time.monotonic() - inicio) * 1000)
+            logger.info("GET %s -> %s (%d ms)", url, resp.status, ms)
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
+        ms = int((time.monotonic() - inicio) * 1000)
+        logger.warning("GET %s -> %s (%d ms)", url, e.code, ms)
         try:
             return e.code, json.loads(e.read().decode("utf-8"))
         except Exception:
             return e.code, {}
     except Exception as e:
+        ms = int((time.monotonic() - inicio) * 1000)
+        logger.error("GET %s -> error de conexión tras %d ms: %s", url, ms, e)
         return 0, {"error": str(e)}
 
 

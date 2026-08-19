@@ -22,6 +22,7 @@ Sin dependencias externas: solo librería estándar de Python 3.8+.
 El template se lee con un parser mínimo (no requiere PyYAML).
 """
 
+import logging
 import os
 import sys
 
@@ -134,6 +135,7 @@ def load_template():
 # Reporte
 # ----------------------------------------------------------------------
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if len(sys.argv) < 2:
         print("Uso: python release-status.py <TICKET>   (ej. SCRUM-10)")
         sys.exit(1)

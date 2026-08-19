@@ -12,9 +12,12 @@ Cada función es una "tool" que el agente puede invocar:
 Sin dependencias externas salvo `anthropic` (que usa el agente, no este módulo).
 """
 
+import logging
 import os
 
 from http_client import age, gh_headers, http_get, jira_headers
+
+logger = logging.getLogger(__name__)
 
 WORKFLOWS = ["Jira-Branch", "CI-PR", "CICD-DEV", "CICD-CERT"]
 TEMPLATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "process-template.yml")
@@ -25,15 +28,18 @@ TEMPLATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proces
 # ----------------------------------------------------------------------
 def consultar_jira(ticket):
     """Estado actual de un ticket de cambio en Jira."""
+    logger.info("tool consultar_jira(ticket=%s)", ticket)
     base = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
     code, data = http_get(
         f"{base}/rest/api/3/issue/{ticket}?fields=status,summary,updated,assignee",
         jira_headers(),
     )
     if code != 200:
+        logger.warning("tool consultar_jira(%s) fallo: HTTP %s", ticket, code)
         return {"error": f"No se pudo leer {ticket} (HTTP {code}). Puede no existir o fallar la autenticación."}
     f = data["fields"]
     asignado = (f.get("assignee") or {}).get("displayName", "sin asignar")
+    logger.info("tool consultar_jira(%s) OK: estado=%s", ticket, f["status"]["name"])
     return {
         "ticket": ticket,
         "titulo": f["summary"],
@@ -50,11 +56,13 @@ def consultar_pipelines(rama=None, ticket=None):
       - head_branch: la convención de ramas incluye la key (feature/SCRUM-11-...)
       - display_title: los workflows manuales llevan el ticket en su run-name
     """
+    logger.info("tool consultar_pipelines(rama=%s, ticket=%s)", rama, ticket)
     repo = os.environ.get("GITHUB_REPO", "")
     code, data = http_get(
         f"https://api.github.com/repos/{repo}/actions/runs?per_page=100", gh_headers()
     )
     if code != 200:
+        logger.warning("tool consultar_pipelines fallo: HTTP %s", code)
         return {"error": f"No se pudieron leer los runs (HTTP {code}). Revisa GITHUB_REPO y GITHUB_TOKEN."}
 
     clave = (ticket or "").upper().strip()
@@ -81,6 +89,7 @@ def consultar_pipelines(rama=None, ticket=None):
             "url": run["html_url"],
         })
 
+    logger.info("tool consultar_pipelines OK: %d ejecuciones encontradas", len(out))
     resultado = {"repositorio": repo, "ejecuciones": out}
     if clave and not out:
         resultado["nota"] = (
@@ -93,11 +102,13 @@ def consultar_pipelines(rama=None, ticket=None):
 
 def detalle_ejecucion(run_id):
     """Jobs y steps de una ejecución: identifica en qué step va, falló o espera aprobación."""
+    logger.info("tool detalle_ejecucion(run_id=%s)", run_id)
     repo = os.environ.get("GITHUB_REPO", "")
     code, data = http_get(
         f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/jobs", gh_headers()
     )
     if code != 200:
+        logger.warning("tool detalle_ejecucion(%s) fallo: HTTP %s", run_id, code)
         return {"error": f"No se pudo leer el run {run_id} (HTTP {code})."}
     jobs, punto = [], None
     for job in data.get("jobs", []):
@@ -116,14 +127,19 @@ def detalle_ejecucion(run_id):
             "resultado": job["conclusion"] or "en curso",
             "steps": steps,
         })
+    logger.info("tool detalle_ejecucion(%s) OK: %s", run_id, punto or "sin pendientes")
     return {"run_id": run_id, "punto_actual": punto or "Ejecución finalizada sin pendientes", "jobs": jobs}
 
 
 def consultar_proceso():
     """El template del proceso: fases, qué las evidencia y cuál es el siguiente paso."""
+    logger.info("tool consultar_proceso()")
     try:
-        return {"template": open(TEMPLATE_FILE, encoding="utf-8").read()}
+        contenido = open(TEMPLATE_FILE, encoding="utf-8").read()
+        logger.info("tool consultar_proceso() OK: %d bytes leidos", len(contenido))
+        return {"template": contenido}
     except FileNotFoundError:
+        logger.warning("tool consultar_proceso() fallo: no se encontro %s", TEMPLATE_FILE)
         return {"error": f"No se encontró {TEMPLATE_FILE}"}
 
 
