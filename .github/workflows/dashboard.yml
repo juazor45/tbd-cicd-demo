@@ -1,0 +1,54 @@
+name: Dashboard-Auditoria
+
+# Genera docs/dashboard.md: por cada ticket con spec declarado, agrega su
+# estado en Jira, las ultimas ejecuciones de pipeline y enlaces a los PRs
+# relacionados. Es una vista de solo lectura -- GitHub ya renderiza el
+# Markdown al abrir el archivo, no hace falta un servidor ni GitHub Pages.
+#
+# Se commitea directo a main porque es un artefacto generado (como un
+# lockfile), no codigo que necesite revision en PR.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 13 * * 1-5" # 08:00 America/Lima, dias habiles
+  push:
+    branches: [main]
+    paths:
+      - "specs/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dashboard-auditoria
+  cancel-in-progress: true
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Generar dashboard
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/dashboard.py --out docs/dashboard.md
+
+      - name: Commitear si cambió
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/dashboard.md
+          if git diff --staged --quiet; then
+            echo "Sin cambios en el dashboard."
+          else
+            git commit -m "chore(dashboard): actualizar dashboard de auditoría"
+            git push
+          fi

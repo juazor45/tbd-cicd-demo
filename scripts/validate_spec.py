@@ -45,24 +45,36 @@ def extraer_ticket(rama):
 
 
 def parsear_spec(path):
-    """Parser minimo: separa escalares ('key: value') de listas ('key:' + lineas '  - item')."""
+    """Parser minimo: separa escalares ('key: value'), listas ('key:' + '  - item')
+    y bloques de texto estilo YAML folded/literal ('key: >' o 'key: |' + lineas
+    indentadas). No es un parser YAML completo -- solo entiende la estructura
+    fija de specs/TEMPLATE.yml."""
     datos = {}
     clave_actual = None
+    en_bloque = False
     with open(path, encoding="utf-8") as f:
         for raw in f:
             linea = raw.rstrip("\n")
             if not linea.strip() or linea.strip().startswith("#"):
                 continue
             if linea.startswith((" ", "\t")):
+                if en_bloque:
+                    previo = datos.get(clave_actual, "")
+                    datos[clave_actual] = (previo + " " + linea.strip()).strip()
+                    continue
                 if clave_actual in LIST_KEYS and linea.strip().startswith("-"):
                     item = linea.strip()[1:].strip().strip('"').strip("'")
                     datos.setdefault(clave_actual, []).append(item)
-                continue  # otras continuaciones (ej. bloque 'contrato: >') se ignoran aqui
+                continue
+            en_bloque = False
             if ":" in linea:
                 clave, _, resto = linea.partition(":")
                 clave_actual = clave.strip()
                 resto = resto.strip()
-                if resto and resto not in (">", "|"):
+                if resto in (">", "|"):
+                    en_bloque = True
+                    datos[clave_actual] = ""
+                elif resto:
                     datos[clave_actual] = resto.strip('"').strip("'")
     return datos
 

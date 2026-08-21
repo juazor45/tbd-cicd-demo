@@ -11,8 +11,15 @@ actualiza) un comentario en el PR con el resultado.
 Complementa a validate_spec.py: ese solo compara RUTAS de archivo; este
 entiende el CONTENIDO del cambio.
 
-MODO ADVISORIO: nunca falla el build. Si algo sale mal (sin ticket, sin
-spec, diff vacio, error de API), se omite sin bloquear nada.
+MODO ADVISORIO: nunca bloquea el merge (este workflow no es un check
+requerido en el ruleset de main). Pero distingue dos casos:
+  - Nada que revisar (sin ticket, sin spec declarado, diff vacio): se omite
+    en silencio, el job termina en verde.
+  - Error real (fallo la API de Anthropic, no se pudo publicar el
+    comentario): el job termina en ROJO a proposito, para que se note que
+    el review no se hizo. No bloquea el merge, pero no debe pasar
+    desapercibido: hoy el unico sintoma de "faltan credenciales" era un
+    check verde sin comentario, y eso nadie lo nota.
 
 Uso (pensado para correr dentro de un workflow de GitHub Actions):
   python3 scripts/review_agent.py <rama> <pr_numero> <base_ref>
@@ -78,6 +85,7 @@ def obtener_diff(base_ref):
 
 
 def publicar_o_actualizar_comentario(pr_numero, cuerpo):
+    """Publica o actualiza el comentario del review. Devuelve True/False (exito)."""
     repo = os.environ.get("GITHUB_REPOSITORY")
     listado = sh(
         "gh", "api", f"repos/{repo}/issues/{pr_numero}/comments", "--paginate",
@@ -94,9 +102,10 @@ def publicar_o_actualizar_comentario(pr_numero, cuerpo):
         accion = "publicado"
 
     if r.returncode != 0:
-        logger.warning("No se pudo %s el comentario: %s", accion, r.stderr.strip())
-    else:
-        logger.info("Comentario %s en PR #%s", accion, pr_numero)
+        logger.error("No se pudo %s el comentario: %s", accion, r.stderr.strip())
+        return False
+    logger.info("Comentario %s en PR #%s", accion, pr_numero)
+    return True
 
 
 def main():
@@ -143,12 +152,15 @@ def main():
         )
         texto = "".join(b.text for b in resp.content if b.type == "text")
     except Exception as e:
-        logger.warning("Fallo llamando a la API de Anthropic: %s", e)
-        print(f"⚠️ Fallo llamando a la API de Anthropic: {e}")
-        return
+        logger.error("Fallo llamando a la API de Anthropic: %s", e)
+        print(f"❌ Fallo llamando a la API de Anthropic: {e}")
+        print("   El review de IA no se hizo. Revisa el secret ANTHROPIC_API_KEY del repositorio.")
+        sys.exit(1)  # visible en rojo a proposito; no bloquea el merge (check no requerido)
 
     cuerpo = f"### 🤖 Review automatizado contra `specs/{ticket}.yml`\n\n{texto}"
-    publicar_o_actualizar_comentario(pr_numero, cuerpo)
+    if not publicar_o_actualizar_comentario(pr_numero, cuerpo):
+        print("❌ El review se genero pero no se pudo publicar el comentario en el PR.")
+        sys.exit(1)
     print("✅ Comentario de review publicado/actualizado.")
 
 

@@ -13,7 +13,8 @@ Laboratorio funcional de un proceso de entrega de software completo: **Trunk-Bas
 | **Pipelines** | 4 workflows de GitHub Actions: validación de rama, validación de PR, CI/CD a dev y CI/CD a cert |
 | **Change management** | El tablero de Jira avanza automáticamente conforme avanza el pipeline |
 | **Specs** | Contrato del cambio por ticket (`specs/<TICKET>.yml`): qué debe cambiar, qué no debe tocarse, y evidencia requerida |
-| **Asistente** | Agente de IA con 5 herramientas, accesible desde Slack, web, terminal y Actions |
+| **Dashboard de auditoría** | `docs/dashboard.md`: por cada ticket, spec + estado en Jira + pipelines + PRs, todo enlazado en una sola vista |
+| **Asistente** | Agente de IA con 5 herramientas, accesible desde Slack, terminal y Actions |
 
 ---
 
@@ -63,9 +64,20 @@ Al crear la rama, copia `specs/TEMPLATE.yml` a `specs/<TICKET>.yml` (ver `specs/
 Dos capas de validación en cada PR, ambas en **modo advisorio** (informan, no bloquean el merge todavía):
 
 - `ci-pr.yml` → `scripts/validate_spec.py`: compara los **archivos** reales del PR contra `cambios_permitidos`/`cambios_prohibidos` (matching de rutas, determinístico).
-- `spec-review.yml` → `scripts/review_agent.py`: le pasa a Claude el **diff real** (el contenido, no solo los nombres de archivo) junto con el spec, y publica un comentario en el PR con un veredicto y hallazgos — por ejemplo, si el contrato dice que un formato de respuesta no debe cambiar pero el diff sí lo toca, o si falta un test que el spec pide como evidencia. Se omite en silencio si la rama no tiene ticket o el ticket no tiene spec (PRs de Dependabot, chores, etc.).
+- `spec-review.yml` → `scripts/review_agent.py`: le pasa a Claude el **diff real** (el contenido, no solo los nombres de archivo) junto con el spec, y publica un comentario en el PR con un veredicto y hallazgos — por ejemplo, si el contrato dice que un formato de respuesta no debe cambiar pero el diff sí lo toca, o si falta un test que el spec pide como evidencia. Se omite en silencio si la rama no tiene ticket o el ticket no tiene spec (PRs de Dependabot, chores, etc.) — pero si hay algo que revisar y falla por un error real (por ejemplo, falta el secret `ANTHROPIC_API_KEY`), el check queda en rojo a propósito, para que se note que el review no se hizo. Como no es un check requerido, nunca bloquea el merge.
 
 El agente conversacional también puede leer el spec: pregúntale "¿qué alcance tiene SCRUM-14?" y usa la tool `consultar_spec`.
+
+### Dashboard de auditoría
+
+`docs/dashboard.md` agrega, por cada ticket con spec declarado, todo lo que hoy hay que ir a buscar por separado: el spec (contrato y evidencia requerida), el estado en Jira, las últimas ejecuciones de pipeline con su resultado, y un enlace a los PRs relacionados en GitHub.
+
+No es un servidor ni necesita GitHub Pages: es un Markdown estático que GitHub ya renderiza al abrir el archivo en el repo. Lo genera `scripts/dashboard.py` (sin dependencias externas, reutiliza las mismas tools que el asistente) y lo mantiene actualizado `.github/workflows/dashboard.yml`, que corre manual, todos los días hábiles, y cada vez que cambia algo en `specs/`.
+
+```bash
+python3 scripts/dashboard.py                    # imprime a stdout
+python3 scripts/dashboard.py --out docs/dashboard.md
+```
 
 ---
 
@@ -159,9 +171,9 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 | Archivo | Interfaz | Uso |
 |---|---|---|
 | `scripts/slack_bot.py` | Slack (Socket Mode) | `/release SCRUM-11` o `@DeployGo ¿por qué falló?` |
-| `scripts/api.py` + `static/` | Web (FastAPI) | `uvicorn api:app --port 8000` |
 | `scripts/assistant.py` | Terminal | `python assistant.py "¿en qué va SCRUM-11?"` |
 | `.github/workflows/consulta-estado.yml` | GitHub Actions | Run workflow → reporte en el Summary |
+| `docs/dashboard.md` | Vista persistente (Markdown) | Se abre directo en GitHub; se regenera sola con `.github/workflows/dashboard.yml` |
 
 El conocimiento del proceso vive en `scripts/process-template.yml`, un archivo editable. **Cuando el proceso cambia, se edita ese archivo — no el código.**
 
@@ -197,12 +209,11 @@ En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Requ
 
 ```
 .
-├── .github/workflows/     jira-branch · ci-pr · cicd-dev · cicd-cert · consulta-estado
+├── .github/workflows/     jira-branch · ci-pr · cicd-dev · cicd-cert · dashboard · consulta-estado
 ├── src/                   microservicio Quarkus (main y test)
 ├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
-├── scripts/               asistente: tools · slack_bot · assistant · api · process-template
-├── static/                interfaz web del asistente
-├── docs/                  estrategia de ramas
+├── scripts/               asistente: tools · slack_bot · assistant · dashboard · process-template
+├── docs/                  estrategia de ramas + dashboard.md (generado)
 ├── pom.xml
 └── Dockerfile
 ```
