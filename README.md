@@ -51,7 +51,7 @@ Después: se ejecuta `CICD-DEV` desde la rama para desplegar y probar en desarro
 
 ### Specs: el contrato del cambio
 
-Al crear la rama, copia `specs/TEMPLATE.yml` a `specs/<TICKET>.yml` (ver `specs/SCRUM-20.yml` como ejemplo) y declara:
+Al crear la rama, copia `specs/TEMPLATE.yml` a `specs/<TICKET>.yml` (ver `specs/SCRUM-14.yml` como ejemplo real) y declara:
 
 | Campo | Qué significa |
 |---|---|
@@ -60,7 +60,12 @@ Al crear la rama, copia `specs/TEMPLATE.yml` a `specs/<TICKET>.yml` (ver `specs/
 | `contrato` | Qué comportamiento de API debe preservarse o agregarse |
 | `evidencia_requerida` | Qué prueba que el trabajo quedó hecho |
 
-El check `ci-pr.yml` compara los archivos reales del PR contra ese spec y avisa si algo se sale de lo declarado (hoy en **modo advisorio**: informa, no bloquea el merge — se puede promover a bloqueante más adelante). El agente también puede leerlo: pregúntale "¿qué alcance tiene SCRUM-20?" y usa la tool `consultar_spec`.
+Dos capas de validación en cada PR, ambas en **modo advisorio** (informan, no bloquean el merge todavía):
+
+- `ci-pr.yml` → `scripts/validate_spec.py`: compara los **archivos** reales del PR contra `cambios_permitidos`/`cambios_prohibidos` (matching de rutas, determinístico).
+- `spec-review.yml` → `scripts/review_agent.py`: le pasa a Claude el **diff real** (el contenido, no solo los nombres de archivo) junto con el spec, y publica un comentario en el PR con un veredicto y hallazgos — por ejemplo, si el contrato dice que un formato de respuesta no debe cambiar pero el diff sí lo toca, o si falta un test que el spec pide como evidencia. Se omite en silencio si la rama no tiene ticket o el ticket no tiene spec (PRs de Dependabot, chores, etc.).
+
+El agente conversacional también puede leer el spec: pregúntale "¿qué alcance tiene SCRUM-14?" y usa la tool `consultar_spec`.
 
 ---
 

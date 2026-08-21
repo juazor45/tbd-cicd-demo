@@ -36,8 +36,12 @@ logger = logging.getLogger(__name__)
 
 
 def extraer_ticket(rama):
-    m = re.search(r"[A-Z][A-Z0-9]+-[0-9]+", rama or "", re.IGNORECASE)
-    return m.group(0).upper() if m else None
+    # Sin re.IGNORECASE a proposito: la convencion de ramas exige el ticket
+    # en mayusculas (ver jira-branch.yml, que usa el mismo criterio en bash).
+    # Con IGNORECASE, ramas como 'dependabot/.../checkout-7.0.1' matchean
+    # falsamente como ticket "CHECKOUT-7".
+    m = re.search(r"[A-Z][A-Z0-9]+-[0-9]+", rama or "")
+    return m.group(0) if m else None
 
 
 def parsear_spec(path):
