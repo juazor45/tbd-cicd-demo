@@ -12,7 +12,8 @@ Laboratorio funcional de un proceso de entrega de software completo: **Trunk-Bas
 | **Microservicio** | `ms-exchange-rate` — API de tipos de cambio en Quarkus 3 + Java 17 + Maven |
 | **Pipelines** | 4 workflows de GitHub Actions: validación de rama, validación de PR, CI/CD a dev y CI/CD a cert |
 | **Change management** | El tablero de Jira avanza automáticamente conforme avanza el pipeline |
-| **Asistente** | Agente de IA con 4 herramientas, accesible desde Slack, web, terminal y Actions |
+| **Specs** | Contrato del cambio por ticket (`specs/<TICKET>.yml`): qué debe cambiar, qué no debe tocarse, y evidencia requerida |
+| **Asistente** | Agente de IA con 5 herramientas, accesible desde Slack, web, terminal y Actions |
 
 ---
 
@@ -47,6 +48,19 @@ git push -u origin feature/SCRUM-11-nueva-api
 ```
 
 Después: se ejecuta `CICD-DEV` desde la rama para desplegar y probar en desarrollo (queda el status `validado-en-dev` sobre el commit), se abre el Pull Request, se aprueba, y se hace squash merge a `main`. La rama se borra automáticamente. La promoción a certificación se lanza después, ya desde `main`.
+
+### Specs: el contrato del cambio
+
+Al crear la rama, copia `specs/TEMPLATE.yml` a `specs/<TICKET>.yml` (ver `specs/SCRUM-20.yml` como ejemplo) y declara:
+
+| Campo | Qué significa |
+|---|---|
+| `cambios_permitidos` | Rutas (glob) que el PR puede tocar |
+| `cambios_prohibidos` | Rutas que NO debe tocar bajo ningún motivo, para este ticket |
+| `contrato` | Qué comportamiento de API debe preservarse o agregarse |
+| `evidencia_requerida` | Qué prueba que el trabajo quedó hecho |
+
+El check `ci-pr.yml` compara los archivos reales del PR contra ese spec y avisa si algo se sale de lo declarado (hoy en **modo advisorio**: informa, no bloquea el merge — se puede promover a bloqueante más adelante). El agente también puede leerlo: pregúntale "¿qué alcance tiene SCRUM-20?" y usa la tool `consultar_spec`.
 
 ---
 
@@ -133,6 +147,7 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 - `consultar_pipelines` — ejecuciones de los workflows, filtrables por ticket
 - `detalle_ejecucion` — jobs y steps: dónde falló, qué ejecuta o qué espera aprobación
 - `consultar_proceso` — el template con fases, criterios y siguiente paso
+- `consultar_spec` — el contrato del ticket: qué debe cambiar, qué no debe tocarse, evidencia requerida
 
 **Interfaces disponibles:**
 
@@ -179,6 +194,7 @@ En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Requ
 .
 ├── .github/workflows/     jira-branch · ci-pr · cicd-dev · cicd-cert · consulta-estado
 ├── src/                   microservicio Quarkus (main y test)
+├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
 ├── scripts/               asistente: tools · slack_bot · assistant · api · process-template
 ├── static/                interfaz web del asistente
 ├── docs/                  estrategia de ramas

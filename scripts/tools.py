@@ -131,6 +131,21 @@ def detalle_ejecucion(run_id):
     return {"run_id": run_id, "punto_actual": punto or "Ejecución finalizada sin pendientes", "jobs": jobs}
 
 
+def consultar_spec(ticket):
+    """Lee el spec declarado del ticket: que debe cambiar, que no debe tocar, contrato y evidencia requerida."""
+    logger.info("tool consultar_spec(ticket=%s)", ticket)
+    spec_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "specs", f"{ticket.upper()}.yml"
+    )
+    try:
+        contenido = open(spec_path, encoding="utf-8").read()
+        logger.info("tool consultar_spec(%s) OK: %d bytes leidos", ticket, len(contenido))
+        return {"ticket": ticket.upper(), "spec": contenido}
+    except FileNotFoundError:
+        logger.warning("tool consultar_spec(%s) fallo: no existe %s", ticket, spec_path)
+        return {"error": f"No hay un spec declarado para {ticket.upper()} (specs/{ticket.upper()}.yml)"}
+
+
 def consultar_proceso():
     """El template del proceso: fases, qué las evidencia y cuál es el siguiente paso."""
     logger.info("tool consultar_proceso()")
@@ -181,6 +196,17 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "consultar_spec",
+        "description": "Devuelve el spec declarado de un ticket (specs/<TICKET>.yml): que debe cambiar, que NO debe tocar, el contrato de API a preservar, y la evidencia requerida para considerarlo terminado. Usala cuando pregunten por el alcance, los limites o los criterios de aceptacion de un ticket. Si no existe el archivo, informa que el ticket no tiene spec declarado.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticket": {"type": "string", "description": "Key del ticket, ej. SCRUM-20"}
+            },
+            "required": ["ticket"],
+        },
+    },
+    {
         "name": "consultar_proceso",
         "description": "Devuelve el template documentado del proceso de release: cada fase, qué la evidencia y cuál es el siguiente paso. Úsala para explicar en qué fase está el release y qué debe hacer el usuario a continuación.",
         "input_schema": {"type": "object", "properties": {}},
@@ -192,4 +218,5 @@ TOOL_FUNCTIONS = {
     "consultar_pipelines": consultar_pipelines,
     "detalle_ejecucion": detalle_ejecucion,
     "consultar_proceso": consultar_proceso,
+    "consultar_spec": consultar_spec,
 }
