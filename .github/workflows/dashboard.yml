@@ -6,7 +6,12 @@ name: Dashboard-Auditoria
 # Markdown al abrir el archivo, no hace falta un servidor ni GitHub Pages.
 #
 # Se commitea directo a main porque es un artefacto generado (como un
-# lockfile), no codigo que necesite revision en PR.
+# lockfile), no codigo que necesite revision en PR. Para eso necesita
+# saltarse el ruleset de main -- por eso usa DASHBOARD_BOT_TOKEN (un PAT
+# de un admin del repo) en vez del GITHUB_TOKEN por defecto: el ruleset
+# tiene a "Repository admin" en su bypass list, pero el bot de Actions
+# (github-actions[bot]) no cuenta como admin y por eso el push por
+# defecto es rechazado (GH013). Ver README > Configuracion > Dashboard.
 
 on:
   workflow_dispatch:
@@ -31,6 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.DASHBOARD_BOT_TOKEN }}
 
       - name: Generar dashboard
         env:
