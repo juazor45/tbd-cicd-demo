@@ -23,7 +23,9 @@ public class ExchangeRateService {
             "EUR", new ExchangeRate("EUR", "Euro",
                     new BigDecimal("4.050"), new BigDecimal("4.120"), LocalDate.now()),
             "CLP", new ExchangeRate("CLP", "Peso chileno (x1000)",
-                    new BigDecimal("3.950"), new BigDecimal("4.010"), LocalDate.now())
+                    new BigDecimal("3.950"), new BigDecimal("4.010"), LocalDate.now()),
+            "GBP", new ExchangeRate("GBP", "Libra esterlina",
+                    new BigDecimal("4.750"), new BigDecimal("4.820"), LocalDate.now())
     );
 
     public List<ExchangeRate> findAll() {
