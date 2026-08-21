@@ -36,8 +36,8 @@ def http_get(url, headers=None):
     respondieron. Nunca loguea los headers: ahí va la autenticación.
     """
     inicio = time.monotonic()
-    req = urllib.request.Request(url, headers=headers or {})
     try:
+        req = urllib.request.Request(url, headers=headers or {})
         with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as resp:
             ms = int((time.monotonic() - inicio) * 1000)
             logger.info("GET %s -> %s (%d ms)", url, resp.status, ms)

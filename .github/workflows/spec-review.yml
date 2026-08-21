@@ -5,9 +5,12 @@ name: Spec-Review-Agent
 # Complementa a validate_spec.py (que corre en ci-pr.yml y solo compara
 # rutas de archivo): este entiende el CONTENIDO del cambio.
 #
-# MODO ADVISORIO: solo informa via comentario, nunca falla el build ni
-# bloquea el merge. Se omite en silencio si la rama no tiene ticket o el
-# ticket no tiene spec declarado (ej. PRs de Dependabot o chores).
+# MODO ADVISORIO: nunca bloquea el merge (no es un check requerido en el
+# ruleset de main). Se omite en silencio si la rama no tiene ticket o el
+# ticket no tiene spec declarado (ej. PRs de Dependabot o chores). Pero si
+# hay algo que revisar y falla por un error real (credenciales, API caida),
+# este job SI queda en rojo a proposito -- para que se note en el PR en vez
+# de quedar verde sin haber revisado nada.
 on:
   pull_request:
     types: [opened, reopened, synchronize]
