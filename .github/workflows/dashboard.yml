@@ -1,9 +1,12 @@
 name: Dashboard-Auditoria
 
-# Genera docs/dashboard.md: por cada ticket con spec declarado, agrega su
-# estado en Jira, las ultimas ejecuciones de pipeline y enlaces a los PRs
-# relacionados. Es una vista de solo lectura -- GitHub ya renderiza el
-# Markdown al abrir el archivo, no hace falta un servidor ni GitHub Pages.
+# Genera dos vistas de auditoria por ticket con spec declarado -- estado en
+# Jira, fase del proceso y siguiente paso, ultimas ejecuciones de pipeline
+# (con el job/step exacto si hay una en curso) y enlaces a los PRs:
+#   - docs/dashboard.md    tabla simple, la renderiza GitHub al abrir el archivo
+#   - docs/dashboard.html  panel visual con buscador (docs/dashboard.py
+#     trae los datos una sola vez con las credenciales del workflow y los
+#     incrusta como JSON; el buscador filtra en el navegador, sin backend)
 #
 # Se commitea directo a main porque es un artefacto generado (como un
 # lockfile), no codigo que necesite revision en PR. Para eso necesita
@@ -46,13 +49,13 @@ jobs:
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/dashboard.py --out docs/dashboard.md
+        run: python3 scripts/dashboard.py --out docs/dashboard.md --out-html docs/dashboard.html
 
       - name: Commitear si cambió
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/dashboard.md
+          git add docs/dashboard.md docs/dashboard.html
           if git diff --staged --quiet; then
             echo "Sin cambios en el dashboard."
           else

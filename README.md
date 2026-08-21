@@ -13,7 +13,7 @@ Laboratorio funcional de un proceso de entrega de software completo: **Trunk-Bas
 | **Pipelines** | 4 workflows de GitHub Actions: validación de rama, validación de PR, CI/CD a dev y CI/CD a cert |
 | **Change management** | El tablero de Jira avanza automáticamente conforme avanza el pipeline |
 | **Specs** | Contrato del cambio por ticket (`specs/<TICKET>.yml`): qué debe cambiar, qué no debe tocarse, y evidencia requerida |
-| **Dashboard de auditoría** | `docs/dashboard.md`: por cada ticket, spec + estado en Jira + pipelines + PRs, todo enlazado en una sola vista |
+| **Dashboard de auditoría** | `docs/dashboard.md` (tabla) + `docs/dashboard.html` (panel visual con buscador): por cada ticket, spec + estado en Jira + fase del proceso + pipelines + PRs, todo enlazado |
 | **Asistente** | Agente de IA con 5 herramientas, accesible desde Slack, terminal y Actions |
 
 ---
@@ -70,14 +70,20 @@ El agente conversacional también puede leer el spec: pregúntale "¿qué alcanc
 
 ### Dashboard de auditoría
 
-`docs/dashboard.md` agrega, por cada ticket con spec declarado, todo lo que hoy hay que ir a buscar por separado: el spec (contrato y evidencia requerida), el estado en Jira, las últimas ejecuciones de pipeline con su resultado, y un enlace a los PRs relacionados en GitHub.
+Por cada ticket con spec declarado, agrega todo lo que hoy hay que ir a buscar por separado: el spec (contrato y evidencia requerida), el estado en Jira, la fase del proceso y su siguiente paso, las últimas ejecuciones de pipeline (con el job/step exacto si hay una en curso), y un enlace a los PRs relacionados. Lo genera `scripts/dashboard.py` (sin dependencias externas, reutiliza las mismas tools que el asistente) en dos formatos:
 
-No es un servidor ni necesita GitHub Pages: es un Markdown estático que GitHub ya renderiza al abrir el archivo en el repo. Lo genera `scripts/dashboard.py` (sin dependencias externas, reutiliza las mismas tools que el asistente) y lo mantiene actualizado `.github/workflows/dashboard.yml`, que corre manual, todos los días hábiles, y cada vez que cambia algo en `specs/`.
+- **`docs/dashboard.md`** — tabla simple. GitHub ya la renderiza al abrir el archivo en el repo, sin nada que configurar.
+- **`docs/dashboard.html`** — panel visual con buscador por ticket (spec, badge de Jira, barra de avance, tarjetas de pipeline, traza completa del proceso). Los datos de **todos** los tickets se traen una sola vez al generarlo (con las credenciales del workflow) y quedan incrustados como JSON en la página; el buscador filtra en el navegador entre esos datos ya traídos, sin volver a golpear Jira ni GitHub por cada búsqueda. Sigue sin ser un servidor: es un archivo estático.
+
+`.github/workflows/dashboard.yml` mantiene ambos actualizados: corre manual, todos los días hábiles, y cada vez que cambia algo en `specs/`.
 
 ```bash
-python3 scripts/dashboard.py                    # imprime a stdout
+python3 scripts/dashboard.py                                          # Markdown a stdout
 python3 scripts/dashboard.py --out docs/dashboard.md
+python3 scripts/dashboard.py --out-html docs/dashboard.html
 ```
+
+**Para ver el panel HTML renderizado** (no solo su código fuente, que es lo que muestra GitHub al abrir un `.html` directo en el repo) hay que habilitar GitHub Pages una vez: **Settings → Pages → Source: Deploy from a branch → Branch: `main` / `docs`**. Después queda en `https://<owner>.github.io/<repo>/dashboard.html`, y se actualiza solo cada vez que el workflow regenera el archivo.
 
 ---
 
@@ -173,7 +179,8 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 | `scripts/slack_bot.py` | Slack (Socket Mode) | `/release SCRUM-11` o `@DeployGo ¿por qué falló?` |
 | `scripts/assistant.py` | Terminal | `python assistant.py "¿en qué va SCRUM-11?"` |
 | `.github/workflows/consulta-estado.yml` | GitHub Actions | Run workflow → reporte en el Summary |
-| `docs/dashboard.md` | Vista persistente (Markdown) | Se abre directo en GitHub; se regenera sola con `.github/workflows/dashboard.yml` |
+| `docs/dashboard.md` | Vista persistente (Markdown) | Se abre directo en GitHub |
+| `docs/dashboard.html` | Panel visual (buscador por ticket) | Requiere GitHub Pages habilitado; ver sección "Dashboard de auditoría" |
 
 El conocimiento del proceso vive en `scripts/process-template.yml`, un archivo editable. **Cuando el proceso cambia, se edita ese archivo — no el código.**
 
@@ -185,7 +192,7 @@ El conocimiento del proceso vive en `scripts/process-template.yml`, un archivo e
 
 `JIRA_BASE_URL` · `JIRA_EMAIL` · `JIRA_API_TOKEN` · `ANTHROPIC_API_KEY` · `DASHBOARD_BOT_TOKEN`
 
-`DASHBOARD_BOT_TOKEN` es un PAT (classic, scope `repo`) de un admin del repositorio. `dashboard.yml` commitea `docs/dashboard.md` directo a `main`, y el ruleset bloquea eso salvo que venga de un actor en su bypass list. Con el `GITHUB_TOKEN` por defecto el push queda rechazado (`GH013`) porque `github-actions[bot]` no cuenta como admin. Dos pasos únicos para habilitarlo:
+`DASHBOARD_BOT_TOKEN` es un PAT (classic, scope `repo`) de un admin del repositorio. `dashboard.yml` commitea `docs/dashboard.md` y `docs/dashboard.html` directo a `main`, y el ruleset bloquea eso salvo que venga de un actor en su bypass list. Con el `GITHUB_TOKEN` por defecto el push queda rechazado (`GH013`) porque `github-actions[bot]` no cuenta como admin. Dos pasos únicos para habilitarlo:
 
 1. **Settings → Rules → Rulesets** → editar el ruleset de `main` → **Bypass list** → *Add bypass* → Roles → **Repository admin**.
 2. Generar el PAT y guardarlo como secret `DASHBOARD_BOT_TOKEN` (**Settings → Secrets and variables → Actions**).
@@ -218,7 +225,7 @@ En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Requ
 ├── src/                   microservicio Quarkus (main y test)
 ├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
 ├── scripts/               asistente: tools · slack_bot · assistant · dashboard · process-template
-├── docs/                  estrategia de ramas + dashboard.md (generado)
+├── docs/                  estrategia de ramas + dashboard.md/dashboard.html (generados)
 ├── pom.xml
 └── Dockerfile
 ```
