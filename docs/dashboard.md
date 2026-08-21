@@ -1,10 +1,10 @@
 # Dashboard de auditoría
 
-_Generado automáticamente el 2026-08-21 21:46 UTC por `scripts/dashboard.py`. No editar a mano — lo regenera `.github/workflows/dashboard.yml`._
+_Generado automáticamente el 2026-08-21 22:07 UTC por `scripts/dashboard.py`. No editar a mano — lo regenera `.github/workflows/dashboard.yml`. Panel visual: [`docs/dashboard.html`](dashboard.html)._
 
 | Ticket | Spec | Jira | Pipelines | PRs |
 |---|---|---|---|---|
-| **SCRUM-14** | [Agregar la divisa GBP al conversor de tipos de cambio](../specs/SCRUM-14.yml) | **Construcción Done** — sin asignar (hace 2 min) | ✅ [CI-PR](https://github.com/juazor45/tbd-cicd-demo/actions/runs/32521768568) — success (hace 101 min)<br>✅ [Jira-Branch](https://github.com/juazor45/tbd-cicd-demo/actions/runs/32521663959) — success (hace 102 min) | [Ver PRs](https://github.com/juazor45/tbd-cicd-demo/pulls?q=is%3Apr+SCRUM-14) |
+| **SCRUM-14** | [Agregar la divisa GBP al conversor de tipos de cambio](../specs/SCRUM-14.yml) | **Construcción Done** — sin asignar (hace 3 min) | ✅ [CI-PR](https://github.com/juazor45/tbd-cicd-demo/actions/runs/32521768568) — success (hace 2 h)<br>✅ [Jira-Branch](https://github.com/juazor45/tbd-cicd-demo/actions/runs/32521663959) — success (hace 2 h) | [Ver PRs](https://github.com/juazor45/tbd-cicd-demo/pulls?q=is%3Apr+SCRUM-14) |
 
 ---
 
