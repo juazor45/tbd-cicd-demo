@@ -17,8 +17,28 @@ class ExchangeRateResourceTest {
           .when().get("/api/v1/exchange-rates")
           .then()
              .statusCode(200)
-             .body("size()", is(3))
-             .body("currency", hasItems("CLP", "EUR", "USD"));
+             .body("size()", is(4))
+             .body("currency", hasItems("CLP", "EUR", "GBP", "USD"));
+    }
+
+    @Test
+    void shouldReturnRateForGbp() {
+        given()
+          .when().get("/api/v1/exchange-rates/gbp")
+          .then()
+             .statusCode(200)
+             .body("currency", is("GBP"))
+             .body("buyRate", is(4.750f));
+    }
+
+    @Test
+    void shouldConvertGbpToPen() {
+        given()
+          .queryParam("amount", new BigDecimal("100"))
+          .when().get("/api/v1/exchange-rates/GBP/convert")
+          .then()
+             .statusCode(200)
+             .body("amountInPen", is(475.000f));
     }
 
     @Test

@@ -94,8 +94,12 @@ def main():
     print(f"📋 Spec: specs/{ticket}.yml — {spec.get('titulo', '(sin titulo)')}")
     print(f"   Archivos en el PR: {len(archivos)}")
 
+    ruta_propio_spec = os.path.relpath(spec_path, os.path.join(SPECS_DIR, "..")).replace(os.sep, "/")
+
     hallazgos = []
     for path in archivos:
+        if path == ruta_propio_spec:
+            continue  # todo PR puede crear/actualizar su propio spec
         for patron in prohibidos:
             if fnmatch.fnmatch(path, patron):
                 hallazgos.append(f"❌ '{path}' coincide con un patron PROHIBIDO ('{patron}')")
