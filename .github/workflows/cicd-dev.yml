@@ -1,4 +1,4 @@
-#juazor 12/08/2026
+#juazor 12/08/2026.
 name: CICD-DEV
 run-name: CICD-DEV · ${{ inputs.change_ticket }} · ${{ inputs.version }}
 
