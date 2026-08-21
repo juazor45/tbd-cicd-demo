@@ -1,0 +1,24 @@
+ticket: SCRUM-20
+titulo: "Agregar la divisa GBP al conversor de tipos de cambio"
+
+cambios_permitidos:
+  - "src/main/java/com/demo/exchangerate/**"
+  - "src/test/java/com/demo/exchangerate/**"
+
+cambios_prohibidos:
+  - "pom.xml"
+  - "Dockerfile"
+  - ".github/workflows/**"
+
+contrato: >
+  GET /api/v1/exchange-rates debe seguir devolviendo el mismo formato JSON
+  (currency, description, buyRate, sellRate, date), solo con GBP agregado
+  a la lista de divisas. GET /api/v1/exchange-rates/{currency}/convert debe
+  aceptar "GBP" igual que acepta USD/EUR/CLP hoy. No cambia el formato de
+  respuesta de ningun endpoint existente.
+
+evidencia_requerida:
+  - "Test nuevo que pida GBP en /exchange-rates y valide buyRate/sellRate"
+  - "Test nuevo que convierta un monto usando GBP"
+  - "CI (ci-pr.yml) en verde"
+  - "CICD-DEV corrido y validado-en-dev generado sobre el commit final"

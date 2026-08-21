@@ -1,0 +1,31 @@
+# Plantilla de spec — copia este archivo a specs/<TICKET>.yml al crear la rama.
+# Es el contrato del cambio: que debe pasar, que no debe tocarse, y con que
+# se prueba que quedo bien. Se revisa en el mismo PR que el codigo.
+
+ticket: SCRUM-0
+titulo: "Descripcion corta del cambio"
+
+# Rutas (glob) que el PR puede modificar. Si un archivo cambiado no matchea
+# ninguno de estos patrones, el validador lo marca como fuera de alcance.
+cambios_permitidos:
+  - "src/main/java/com/demo/exchangerate/**"
+  - "src/test/java/com/demo/exchangerate/**"
+
+# Rutas (glob) que el PR NO debe tocar bajo ningun motivo para este ticket.
+# Tiene prioridad sobre cambios_permitidos.
+cambios_prohibidos:
+  - "pom.xml"
+  - "Dockerfile"
+  - ".github/workflows/**"
+
+# Que comportamiento de API/contrato debe preservarse o agregarse.
+contrato: >
+  Describe aqui el contrato: formato de request/response, codigos de
+  estado, y que NO debe cambiar de la interfaz existente.
+
+# Que prueba que el trabajo esta hecho. Esto es lo que un reviewer (humano
+# o el agente) busca antes de aprobar.
+evidencia_requerida:
+  - "Tests nuevos o actualizados que cubran el cambio"
+  - "CI (ci-pr.yml) en verde"
+  - "CICD-DEV corrido y validado-en-dev generado"
