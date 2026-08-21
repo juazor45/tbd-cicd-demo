@@ -83,7 +83,7 @@ python3 scripts/dashboard.py --out docs/dashboard.md
 python3 scripts/dashboard.py --out-html docs/dashboard.html
 ```
 
-**Para ver el panel HTML renderizado** (no solo su código fuente, que es lo que muestra GitHub al abrir un `.html` directo en el repo) hay que habilitar GitHub Pages una vez: **Settings → Pages → Source: Deploy from a branch → Branch: `main` / `docs`**. Después queda en `https://<owner>.github.io/<repo>/dashboard.html`, y se actualiza solo cada vez que el workflow regenera el archivo.
+**Para ver el panel HTML renderizado** (abrirlo desde el navegador de archivos de GitHub, `github.com/.../blob/main/docs/dashboard.html`, siempre muestra el código fuente, nunca la página) hay que habilitar GitHub Pages una vez: **Settings → Pages → Source: Deploy from a branch → Branch: `main` / `docs`**. Después queda en **`https://<owner>.github.io/<repo>/`** — el workflow también copia `dashboard.html` a `docs/index.html`, así que la raíz del sitio ya es el panel, sin tener que recordar el nombre del archivo. `docs/.nojekyll` evita que GitHub Pages intente procesar el sitio con Jekyll (que por defecto espera archivos con "front matter" y puede interferir con HTML/JS servido tal cual).
 
 ---
 

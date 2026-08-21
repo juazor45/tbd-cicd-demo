@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeployGo — Panel de gobernanza</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --blue: #2f81f7;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 32px 20px 60px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  .search { display: flex; gap: 10px; margin-bottom: 24px; }
+  .search input {
+    flex: 1; background: var(--card); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 10px 12px; font-size: 14px;
+  }
+  .search button {
+    background: var(--blue); color: #fff; border: none; border-radius: 6px;
+    padding: 0 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .search button:hover { opacity: .9; }
+  .hint { color: var(--muted); font-size: 12px; margin: -14px 0 24px; }
+  .hint button {
+    background: none; border: none; color: var(--blue); cursor: pointer;
+    font-size: 12px; padding: 0; text-decoration: underline;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 18px; margin-bottom: 16px;
+  }
+  .header-card { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .header-card h2 { margin: 0 0 4px; font-size: 18px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .warn { color: var(--orange); font-size: 13px; }
+  .badge {
+    display: inline-block; background: rgba(47,129,247,.15); color: var(--blue);
+    border: 1px solid rgba(47,129,247,.4); border-radius: 999px; padding: 4px 12px;
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+  .progress-row { display: flex; align-items: center; gap: 12px; }
+  .progress-track { flex: 1; height: 8px; background: var(--border); border-radius: 999px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--blue); border-radius: 999px; }
+  .progress-pct { color: var(--blue); font-weight: 700; font-size: 14px; min-width: 42px; text-align: right; }
+  .section-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 28px 0 10px; }
+  .pipe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .pipe-grid { grid-template-columns: 1fr; } }
+  .pipe-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .pipe-name { font-weight: 700; margin-bottom: 6px; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; margin-bottom: 8px; }
+  .pill-success { background: rgba(63,185,80,.15); color: var(--green); }
+  .pill-failure { background: rgba(248,81,73,.15); color: var(--red); }
+  .pill-encurso { background: rgba(210,153,34,.15); color: var(--orange); }
+  .pill-otro { background: rgba(139,148,158,.15); color: var(--muted); }
+  .pipe-card .meta { margin-bottom: 6px; }
+  .pipe-card a { color: var(--blue); text-decoration: none; }
+  .pipe-card a:hover { text-decoration: underline; }
+  .punto-actual { font-weight: 700; font-size: 13px; margin: 8px 0; }
+  .toggle-link { background: none; border: none; color: var(--blue); cursor: pointer; font-size: 12.5px; padding: 0; margin-top: 4px; }
+  .jobs-detail { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; display: none; }
+  .jobs-detail.open { display: block; }
+  .job-row { font-size: 12.5px; margin-bottom: 6px; }
+  .job-row .job-title { font-weight: 600; }
+  .step-row { color: var(--muted); font-size: 12px; margin-left: 12px; }
+  .timeline { position: relative; padding-left: 26px; }
+  .fase-item { position: relative; padding-bottom: 22px; }
+  .fase-item:last-child { padding-bottom: 0; }
+  .fase-item::before {
+    content: ""; position: absolute; left: -20px; top: 4px; bottom: -18px; width: 2px; background: var(--border);
+  }
+  .fase-item:last-child::before { display: none; }
+  .fase-item.done::before, .fase-item.current::before { background: var(--blue); }
+  .fase-dot {
+    position: absolute; left: -26px; top: 2px; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--border); border: 2px solid var(--border);
+  }
+  .fase-item.done .fase-dot { background: var(--blue); border-color: var(--blue); }
+  .fase-item.current .fase-dot { background: var(--bg); border-color: var(--blue); border-width: 3px; }
+  .fase-nombre { font-weight: 700; font-size: 14.5px; }
+  .fase-status { color: var(--muted); font-size: 12.5px; }
+  .fase-detalle { margin-top: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; font-size: 13px; }
+  .fase-detalle p { margin: 0 0 8px; }
+  .fase-detalle p:last-child { margin-bottom: 0; }
+  .footer-link { margin-top: 20px; }
+  .footer-link button { background: none; border: none; color: var(--blue); cursor: pointer; font-size: 13px; padding: 0; }
+  table.pipe-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 20px; display: none; }
+  table.pipe-table.open { display: table; }
+  table.pipe-table th, table.pipe-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  table.pipe-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  table.pipe-table a { color: var(--blue); text-decoration: none; }
+  .footer-note { color: var(--muted); font-size: 11.5px; text-align: center; margin-top: 40px; }
+  .not-found { color: var(--muted); padding: 20px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>DeployGo — Panel de gobernanza</h1>
+  <p class="subtitle">Traza auditable de un release: spec → código → tests → seguridad → aprobación → evidencia, cruzando Jira y GitHub Actions.</p>
+
+  <div class="search">
+    <input id="buscador" type="text" placeholder="Ej. SCRUM-14" autocomplete="off">
+    <button id="btn-consultar">Consultar</button>
+  </div>
+  <p class="hint" id="hint"></p>
+
+  <div id="panel"></div>
+</div>
+
+<script>
+const DATA = {"generado": "2026-08-21 22:07 UTC", "repo": "juazor45/tbd-cicd-demo", "fases": [{"jira_status": "Tareas por hacer", "phase": "Planificación", "description": "El ticket existe pero el desarrollo no ha iniciado.", "evidence": "Sin rama asociada; sin ejecuciones de pipeline.", "next_step": "Crear la rama con la convención feature/<TICKET>-descripcion (dispara Jira-Branch y mueve a Construcción Doing)."}, {"jira_status": "Construcción Doing", "phase": "Construcción", "description": "Desarrollo en curso en una rama corta (TBD).", "evidence": "Workflow Jira-Branch ejecutado; commits en la rama feature.", "next_step": "Abrir Pull Request hacia main; el check CI (ci-pr.yml) debe pasar; luego squash merge y ejecutar CICD-DEV con el ticket."}, {"jira_status": "Construcción Done", "phase": "Construcción finalizada", "description": "El código está integrado al trunk y validado en DEV (CI con gates de calidad y seguridad, artefacto SNAPSHOT publicado, desplegado y con smoke test OK en dev).", "evidence": "Run exitoso de CICD-DEV con este ticket.", "next_step": "Ejecutar CICD-CERT con version RC (ej. 1.0.0-RC1) y el ticket como change_ticket para iniciar el congelamiento."}, {"jira_status": "Congelamiento Doing", "phase": "Congelamiento", "description": "Promoción a certificación en curso: se está construyendo y validando el artefacto RC con policies estrictas.", "evidence": "Run de CICD-CERT en progreso (job CI).", "next_step": "Esperar que el CI de CICD-CERT termine; si falla algún gate, corregir en una nueva rama y repetir el ciclo."}, {"jira_status": "Congelamiento Done", "phase": "Congelamiento finalizado", "description": "Artefacto RC publicado con todos los gates aprobados. Listo para desplegar en CERT.", "evidence": "Job CI de CICD-CERT exitoso; job CD esperando aprobación (environment cert).", "next_step": "Aprobar el despliegue en GitHub (Review deployments → cert → Approve and deploy)."}, {"jira_status": "QA Testing Doing", "phase": "QA Testing", "description": "El servicio está desplegado en CERT (smoke test OK) y QA está ejecutando las pruebas de certificación.", "evidence": "Run de CICD-CERT completo, incluido el CD con smoke test.", "next_step": "QA ejecuta sus casos de prueba; al certificar, mover manualmente el ticket a QA Testing Done."}, {"jira_status": "QA Testing Done", "phase": "Certificado", "description": "QA certificó la versión. El release está listo para producción.", "evidence": "Ticket movido manualmente por QA.", "next_step": "Fin del alcance de la demo (siguiente evolución: pipeline CICD-PROD con su propio approval y change management)."}], "tickets": [{"ticket": "SCRUM-14", "titulo": "Agregar la divisa GBP al conversor de tipos de cambio", "jira": {"ticket": "SCRUM-14", "titulo": "Agregar la divisa GBP al conversor de tipos de cambio", "estado": "Construcción Done", "asignado_a": "sin asignar", "actualizado": "hace 3 min"}, "jira_error": null, "fase": {"jira_status": "Construcción Done", "phase": "Construcción finalizada", "description": "El código está integrado al trunk y validado en DEV (CI con gates de calidad y seguridad, artefacto SNAPSHOT publicado, desplegado y con smoke test OK en dev).", "evidence": "Run exitoso de CICD-DEV con este ticket.", "next_step": "Ejecutar CICD-CERT con version RC (ej. 1.0.0-RC1) y el ticket como change_ticket para iniciar el congelamiento."}, "fase_indice": 2, "fases_total": 7, "pipelines": [{"workflow": "CI-PR", "run_id": 32521768568, "resultado": "success", "rama": "feature/SCRUM-14", "ejecutado": "hace 2 h", "url": "https://github.com/juazor45/tbd-cicd-demo/actions/runs/32521768568", "detalle": {"run_id": 32521768568, "punto_actual": "Ejecución finalizada sin pendientes", "jobs": [{"job": "CI", "estado": "completed", "resultado": "success", "steps": [{"step": "Set up job", "estado": "completed", "resultado": "success"}, {"step": "Checkout", "estado": "completed", "resultado": "success"}, {"step": "Validar spec del ticket (advisorio)", "estado": "completed", "resultado": "success"}, {"step": "Set up JDK 17", "estado": "completed", "resultado": "success"}, {"step": "Build & Unit Tests (Maven)", "estado": "completed", "resultado": "success"}, {"step": "SonarQube (Quality Gate)", "estado": "completed", "resultado": "success"}, {"step": "Upload test reports", "estado": "completed", "resultado": "success"}, {"step": "Post Set up JDK 17", "estado": "completed", "resultado": "success"}, {"step": "Post Checkout", "estado": "completed", "resultado": "success"}, {"step": "Complete job", "estado": "completed", "resultado": "success"}]}]}}, {"workflow": "Jira-Branch", "run_id": 32521663959, "resultado": "success", "rama": "feature/SCRUM-14", "ejecutado": "hace 2 h", "url": "https://github.com/juazor45/tbd-cicd-demo/actions/runs/32521663959", "detalle": {"run_id": 32521663959, "punto_actual": "Ejecución finalizada sin pendientes", "jobs": [{"job": "Jira → Construcción Doing", "estado": "completed", "resultado": "success", "steps": [{"step": "Set up job", "estado": "completed", "resultado": "success"}, {"step": "Verificar credenciales Jira", "estado": "completed", "resultado": "success"}, {"step": "Extraer ticket del nombre de la rama", "estado": "completed", "resultado": "success"}, {"step": "Verificar que el ticket exista en Jira", "estado": "completed", "resultado": "success"}, {"step": "Transicionar a Construcción Doing", "estado": "completed", "resultado": "success"}, {"step": "Complete job", "estado": "completed", "resultado": "success"}]}]}}], "prs_url": "https://github.com/juazor45/tbd-cicd-demo/pulls?q=is%3Apr+SCRUM-14", "contrato": "GET /api/v1/exchange-rates debe seguir devolviendo el mismo formato JSON (currency, description, buyRate, sellRate, date), solo con GBP agregado a la lista de divisas. GET /api/v1/exchange-rates/{currency}/convert debe aceptar \"GBP\" igual que acepta USD/EUR/CLP hoy. No cambia el formato de respuesta de ningun endpoint existente.", "evidencia_requerida": ["Test nuevo que pida GBP en /exchange-rates y valide buyRate/sellRate", "Test nuevo que convierta un monto usando GBP", "CI (ci-pr.yml) en verde", "CICD-DEV corrido y validado-en-dev generado sobre el commit final"]}]};
+
+const ticketsPorClave = {};
+DATA.tickets.forEach(function (t) { ticketsPorClave[t.ticket.toUpperCase()] = t; });
+
+const panel = document.getElementById("panel");
+const buscador = document.getElementById("buscador");
+const hint = document.getElementById("hint");
+
+function claves() {
+  return DATA.tickets.map(function (t) { return t.ticket; });
+}
+
+hint.innerHTML = "Tickets con spec declarado: " + claves().map(function (k) {
+  return '<button onclick="consultar(\'' + k + '\')">' + k + "</button>";
+}).join(" · ");
+
+function pillClase(resultado) {
+  if (resultado === "success") return "pill-success";
+  if (resultado === "failure") return "pill-failure";
+  if (resultado === "en curso") return "pill-encurso";
+  return "pill-otro";
+}
+
+function pillIcono(resultado) {
+  if (resultado === "success") return "✅";
+  if (resultado === "failure") return "❌";
+  if (resultado === "en curso") return "⏳";
+  return "⚪";
+}
+
+function esc(s) {
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderPipelineCard(p, idx) {
+  var detalleHtml = "";
+  var puntoHtml = "";
+  if (p.detalle) {
+    puntoHtml = '<div class="punto-actual">' + esc(p.detalle.punto_actual) + "</div>";
+    var jobsHtml = p.detalle.jobs.map(function (job) {
+      var steps = job.steps.map(function (s) {
+        return '<div class="step-row">' + pillIcono(s.resultado === "—" ? job.estado : s.resultado) + " " + esc(s.step) + " — " + esc(s.resultado) + "</div>";
+      }).join("");
+      return '<div class="job-row"><div class="job-title">' + esc(job.job) + " — " + esc(job.resultado) + "</div>" + steps + "</div>";
+    }).join("");
+    detalleHtml = '<button class="toggle-link" onclick="toggleJobs(' + idx + ')">▸ Ver jobs y steps</button>' +
+      '<div class="jobs-detail" id="jobs-' + idx + '">' + jobsHtml + "</div>";
+  }
+  return '<div class="pipe-card">' +
+    '<div class="pipe-name">' + esc(p.workflow) + "</div>" +
+    '<div class="pill ' + pillClase(p.resultado) + '">' + pillIcono(p.resultado) + " " + esc(p.resultado === "en curso" ? "En curso" : (p.resultado.charAt(0).toUpperCase() + p.resultado.slice(1))) + "</div>" +
+    '<div class="meta">Rama: ' + esc(p.rama) + "</div>" +
+    '<div class="meta">' + esc(p.ejecutado) + ' · <a href="' + p.url + '" target="_blank" rel="noopener">ver en GitHub ↗</a></div>' +
+    puntoHtml + detalleHtml +
+    "</div>";
+}
+
+function renderPipelineTable(pipelines) {
+  if (!pipelines.length) return "";
+  var filas = pipelines.map(function (p) {
+    return "<tr><td>" + esc(p.workflow) + "</td><td>" + pillIcono(p.resultado) + " " + esc(p.resultado) + "</td><td>" + esc(p.rama) + "</td><td>" + esc(p.ejecutado) + '</td><td><a href="' + p.url + '" target="_blank" rel="noopener">Ver</a></td></tr>';
+  }).join("");
+  return '<table class="pipe-table" id="pipe-table">' +
+    "<thead><tr><th>Pipeline</th><th>Resultado</th><th>Rama</th><th>Cuándo</th><th></th></tr></thead>" +
+    "<tbody>" + filas + "</tbody></table>" +
+    '<div class="footer-link"><button onclick="toggleTabla()">▸ Ver pipelines como tabla</button></div>';
+}
+
+function renderTimeline(fases, indiceActual) {
+  return '<div class="timeline">' + fases.map(function (f, i) {
+    var estado = indiceActual === null ? "" : (i < indiceActual ? "done" : (i === indiceActual ? "current" : ""));
+    var detalle = "";
+    if (i === indiceActual) {
+      detalle = '<div class="fase-detalle">' +
+        "<p><strong>Qué significa:</strong> " + esc(f.description) + "</p>" +
+        "<p><strong>Evidencia esperada:</strong> " + esc(f.evidence) + "</p>" +
+        "<p><strong>Siguiente paso:</strong> " + esc(f.next_step) + "</p>" +
+        "</div>";
+    }
+    return '<div class="fase-item ' + estado + '"><div class="fase-dot"></div>' +
+      '<div class="fase-nombre">' + esc(f.phase) + '</div>' +
+      '<div class="fase-status">' + esc(f.jira_status) + "</div>" +
+      detalle + "</div>";
+  }).join("") + "</div>";
+}
+
+function toggleJobs(idx) {
+  document.getElementById("jobs-" + idx).classList.toggle("open");
+}
+
+function toggleTabla() {
+  var t = document.getElementById("pipe-table");
+  if (t) t.classList.toggle("open");
+}
+
+function render(ticket) {
+  var t = ticketsPorClave[(ticket || "").toUpperCase().trim()];
+  if (!t) {
+    panel.innerHTML = '<div class="not-found">No se encontró spec declarado para "' + esc(ticket) +
+      '". Prueba con alguno de: ' + claves().join(", ") + ".</div>";
+    return;
+  }
+
+  var jiraHtml = t.jira
+    ? '<div class="meta">Asignado a ' + esc(t.jira.asignado_a) + " · actualizado " + esc(t.jira.actualizado) + "</div>"
+    : '<div class="warn">⚠️ ' + esc(t.jira_error) + "</div>";
+
+  var badgeHtml = t.jira ? '<span class="badge">' + esc(t.jira.estado) + "</span>" : "";
+
+  var progresoHtml = "";
+  if (t.fase_indice !== null) {
+    var pct = Math.round(((t.fase_indice + 1) / t.fases_total) * 100);
+    progresoHtml = '<div class="card"><div class="label">Avance del proceso (fase ' + (t.fase_indice + 1) + " de " + t.fases_total + ")</div>" +
+      '<div class="progress-row"><div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+      '<div class="progress-pct">' + pct + "%</div></div></div>";
+  }
+
+  var faseCardsHtml = "";
+  if (t.fase) {
+    faseCardsHtml = '<div class="grid2">' +
+      '<div class="card"><div class="label">Fase del proceso</div>' +
+      '<div style="font-weight:700;font-size:15px;">' + esc(t.fase.phase) + "</div>" +
+      '<div class="meta">' + esc(t.fase.jira_status) + "</div></div>" +
+      '<div class="card"><div class="label">Siguiente paso</div>' +
+      '<div style="font-weight:700;font-size:14px;">' + esc(t.fase.next_step) + "</div></div>" +
+      "</div>";
+  }
+
+  var pipelinesHtml = t.pipelines.length
+    ? '<div class="pipe-grid">' + t.pipelines.map(renderPipelineCard).join("") + "</div>" + renderPipelineTable(t.pipelines)
+    : '<div class="meta">— sin ejecuciones encontradas —</div>';
+
+  var timelineHtml = DATA.fases.length ? renderTimeline(DATA.fases, t.fase_indice) : "";
+
+  var contratoHtml = t.contrato
+    ? '<div class="card"><div class="label">Contrato del cambio</div><div class="meta">' + esc(t.contrato) + "</div></div>"
+    : "";
+
+  panel.innerHTML =
+    '<div class="card header-card"><div><h2>' + esc(t.ticket) + " — " + esc(t.titulo) + "</h2>" + jiraHtml + "</div>" + badgeHtml + "</div>" +
+    faseCardsHtml + progresoHtml +
+    '<div class="section-label">Pipelines</div>' + pipelinesHtml +
+    '<div class="section-label">Traza del proceso</div><div class="card">' + timelineHtml + "</div>" +
+    contratoHtml +
+    '<div class="footer-note">Ver PRs relacionados: <a href="' + t.prs_url + '" target="_blank" rel="noopener" style="color:var(--blue)">' + t.prs_url + "</a></div>";
+}
+
+function consultar(valor) {
+  buscador.value = valor;
+  render(valor);
+}
+
+document.getElementById("btn-consultar").addEventListener("click", function () { render(buscador.value); });
+buscador.addEventListener("keydown", function (e) { if (e.key === "Enter") render(buscador.value); });
+
+if (DATA.tickets.length) {
+  consultar(DATA.tickets[0].ticket);
+}
+
+document.title = "DeployGo — Panel de gobernanza";
+</script>
+
+<p class="footer-note">Generado automáticamente el 2026-08-21 22:07 UTC · Fuentes: Jira + GitHub Actions · los % de avance ubican la fase dentro del proceso, no miden esfuerzo real.</p>
+</body>
+</html>
