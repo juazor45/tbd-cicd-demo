@@ -183,7 +183,12 @@ El conocimiento del proceso vive en `scripts/process-template.yml`, un archivo e
 
 ### Secrets del repositorio (Actions)
 
-`JIRA_BASE_URL` · `JIRA_EMAIL` · `JIRA_API_TOKEN` · `ANTHROPIC_API_KEY`
+`JIRA_BASE_URL` · `JIRA_EMAIL` · `JIRA_API_TOKEN` · `ANTHROPIC_API_KEY` · `DASHBOARD_BOT_TOKEN`
+
+`DASHBOARD_BOT_TOKEN` es un PAT (classic, scope `repo`) de un admin del repositorio. `dashboard.yml` commitea `docs/dashboard.md` directo a `main`, y el ruleset bloquea eso salvo que venga de un actor en su bypass list. Con el `GITHUB_TOKEN` por defecto el push queda rechazado (`GH013`) porque `github-actions[bot]` no cuenta como admin. Dos pasos únicos para habilitarlo:
+
+1. **Settings → Rules → Rulesets** → editar el ruleset de `main` → **Bypass list** → *Add bypass* → Roles → **Repository admin**.
+2. Generar el PAT y guardarlo como secret `DASHBOARD_BOT_TOKEN` (**Settings → Secrets and variables → Actions**).
 
 ### Variables para el asistente (local o Codespaces)
 
