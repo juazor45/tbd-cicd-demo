@@ -1,6 +1,6 @@
 # Dashboard de auditoría
 
-_Generado automáticamente el 2026-08-21 22:07 UTC por `scripts/dashboard.py`. No editar a mano — lo regenera `.github/workflows/dashboard.yml`. Panel visual: [`docs/dashboard.html`](dashboard.html)._
+_Generado automáticamente el 2026-08-21 22:18 UTC por `scripts/dashboard.py`. No editar a mano — lo regenera `.github/workflows/dashboard.yml`. Panel visual: [`docs/dashboard.html`](dashboard.html)._
 
 | Ticket | Spec | Jira | Pipelines | PRs |
 |---|---|---|---|---|
