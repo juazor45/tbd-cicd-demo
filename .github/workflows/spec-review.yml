@@ -1,0 +1,48 @@
+name: Spec-Review-Agent
+
+# Agente de IA que compara el diff real de un PR contra el spec declarado
+# del ticket (specs/<TICKET>.yml) y publica un review en el propio PR.
+# Complementa a validate_spec.py (que corre en ci-pr.yml y solo compara
+# rutas de archivo): este entiende el CONTENIDO del cambio.
+#
+# MODO ADVISORIO: solo informa via comentario, nunca falla el build ni
+# bloquea el merge. Se omite en silencio si la rama no tiene ticket o el
+# ticket no tiene spec declarado (ej. PRs de Dependabot o chores).
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: spec-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review de IA contra el spec
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Instalar dependencias
+        run: pip install --quiet anthropic
+
+      - name: Ejecutar agente de review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          python3 scripts/review_agent.py \
+            "${{ github.head_ref }}" \
+            "${{ github.event.pull_request.number }}" \
+            "${{ github.base_ref }}"
