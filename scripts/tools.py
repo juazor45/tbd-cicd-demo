@@ -9,13 +9,22 @@ Cada función es una "tool" que el agente puede invocar:
   - detalle_ejecucion     → jobs y steps de un run (dónde se quedó)
   - consultar_proceso     → el template del proceso (fases, evidencia, siguiente paso)
 
+crear_ticket() y comentar_ticket() (creacion de issues en Jira) viven en este
+archivo por consistencia, pero a proposito NO estan en TOOL_SCHEMAS/TOOL_FUNCTIONS:
+no son tools que el agente conversacional pueda invocar libremente por texto libre.
+Las llama directo scripts/slack_bot.py, y solo despues de pasar por su propio
+control de acceso (canal autorizado), confirmacion explicita del usuario, y rate
+limiting -- ver el comando /crear-ticket ahi. Mantenerlas fuera del loop agentico
+es intencional: crear datos en Jira es una accion con efectos reales, no una
+consulta, y no debe quedar a un paso de una frase mal interpretada por el modelo.
+
 Sin dependencias externas salvo `anthropic` (que usa el agente, no este módulo).
 """
 
 import logging
 import os
 
-from http_client import age, gh_headers, http_get, jira_headers
+from http_client import age, gh_headers, http_get, http_post, jira_headers
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +165,81 @@ def consultar_proceso():
     except FileNotFoundError:
         logger.warning("tool consultar_proceso() fallo: no se encontro %s", TEMPLATE_FILE)
         return {"error": f"No se encontró {TEMPLATE_FILE}"}
+
+
+# ----------------------------------------------------------------------
+# Creacion de tickets (NO expuestas al agente conversacional -- ver docstring
+# del modulo). Solo las llama el flujo de /crear-ticket en slack_bot.py.
+# ----------------------------------------------------------------------
+TIPOS_PERMITIDOS = ("Story", "Bug", "Task")
+MAX_TITULO = 120
+MAX_DESCRIPCION = 2000
+
+
+def _adf(texto):
+    """Envuelve texto plano en Atlassian Document Format: la API v3 de Jira
+    exige ADF (no texto plano) para 'description' y para el cuerpo de un
+    comentario. Un unico parrafo alcanza para lo que necesitamos aca."""
+    return {
+        "type": "doc",
+        "version": 1,
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": texto}]}],
+    }
+
+
+def crear_ticket(proyecto, tipo, titulo, descripcion):
+    """Crea un issue en Jira. Valida localmente antes de llamar a la API para dar
+    mejores mensajes de error que los que devuelve Jira directo. No hace ninguna
+    verificacion de canal/usuario/confirmacion -- eso es responsabilidad exclusiva
+    de quien la llama (slack_bot.py), esta funcion asume que ya se decidio crear."""
+    titulo = (titulo or "").strip()
+    descripcion = (descripcion or "").strip()
+
+    if tipo not in TIPOS_PERMITIDOS:
+        return {"error": f"Tipo de issue no permitido: {tipo!r}. Debe ser uno de {TIPOS_PERMITIDOS}."}
+    if not titulo:
+        return {"error": "El titulo no puede estar vacio."}
+    if len(titulo) > MAX_TITULO:
+        return {"error": f"El titulo supera los {MAX_TITULO} caracteres ({len(titulo)})."}
+    if len(descripcion) > MAX_DESCRIPCION:
+        return {"error": f"La descripcion supera los {MAX_DESCRIPCION} caracteres ({len(descripcion)})."}
+
+    logger.info("tool crear_ticket(proyecto=%s, tipo=%s, titulo=%r)", proyecto, tipo, titulo)
+    base = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+    body = {
+        "fields": {
+            "project": {"key": proyecto},
+            "issuetype": {"name": tipo},
+            "summary": titulo,
+            "description": _adf(descripcion) if descripcion else _adf("(sin descripcion)"),
+        }
+    }
+    code, data = http_post(f"{base}/rest/api/3/issue", jira_headers(), body)
+
+    if code != 201:
+        # Jira devuelve el detalle de que campo fallo en 'errors' -- se lo pasamos
+        # al usuario en vez de un generico "algo salio mal".
+        detalle = data.get("errors") or data.get("errorMessages") or data
+        logger.warning("tool crear_ticket fallo: HTTP %s -- %s", code, detalle)
+        return {"error": f"Jira rechazo la creacion (HTTP {code}): {detalle}"}
+
+    key = data.get("key", "?")
+    url = f"{base}/browse/{key}"
+    logger.info("tool crear_ticket OK: %s (%s)", key, url)
+    return {"ticket": key, "url": url}
+
+
+def comentar_ticket(ticket, texto):
+    """Agrega un comentario a un issue existente. Se usa para dejar trazabilidad
+    (quien creo el ticket, desde donde) -- no para conversar con el agente."""
+    logger.info("tool comentar_ticket(ticket=%s)", ticket)
+    base = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+    code, data = http_post(f"{base}/rest/api/3/issue/{ticket}/comment", jira_headers(), {"body": _adf(texto)})
+    if code not in (200, 201):
+        logger.warning("tool comentar_ticket(%s) fallo: HTTP %s", ticket, code)
+        return {"error": f"No se pudo comentar {ticket} (HTTP {code})."}
+    logger.info("tool comentar_ticket(%s) OK", ticket)
+    return {"ok": True}
 
 
 # ----------------------------------------------------------------------

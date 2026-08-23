@@ -55,6 +55,35 @@ def http_get(url, headers=None):
         return 0, {"error": str(e)}
 
 
+def http_post(url, headers=None, body=None):
+    """POST generico con cuerpo JSON. Devuelve (status_code, dict). status 0 = error
+    de conexion/parseo. Mismo criterio que http_get: nunca truena, siempre informa
+    que paso. Nunca loguea el cuerpo (puede traer texto libre de un usuario) ni los
+    headers (ahi va la autenticacion) -- solo metodo, URL, status y duracion.
+    """
+    inicio = time.monotonic()
+    payload = json.dumps(body or {}).encode("utf-8")
+    envio = {**(headers or {}), "Content-Type": "application/json"}
+    try:
+        req = urllib.request.Request(url, data=payload, headers=envio, method="POST")
+        with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as resp:
+            ms = int((time.monotonic() - inicio) * 1000)
+            logger.info("POST %s -> %s (%d ms)", url, resp.status, ms)
+            crudo = resp.read().decode("utf-8")
+            return resp.status, (json.loads(crudo) if crudo.strip() else {})
+    except urllib.error.HTTPError as e:
+        ms = int((time.monotonic() - inicio) * 1000)
+        logger.warning("POST %s -> %s (%d ms)", url, e.code, ms)
+        try:
+            return e.code, json.loads(e.read().decode("utf-8"))
+        except Exception:
+            return e.code, {}
+    except Exception as e:
+        ms = int((time.monotonic() - inicio) * 1000)
+        logger.error("POST %s -> error de conexion tras %d ms: %s", url, ms, e)
+        return 0, {"error": str(e)}
+
+
 def jira_headers():
     """Headers de autenticación Basic para la API de Jira (JIRA_EMAIL + JIRA_API_TOKEN)."""
     email = os.environ.get("JIRA_EMAIL", "")
