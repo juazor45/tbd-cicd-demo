@@ -186,7 +186,7 @@ El conocimiento del proceso vive en `scripts/process-template.yml`, un archivo e
 
 ### Crear tickets desde Slack: `/crear-ticket`
 
-A diferencia de las tools de arriba, `crear_ticket` y `comentar_ticket` (en `scripts/tools.py`) **no** están expuestas al agente conversacional — crear datos en Jira es una acción con efectos reales, no una consulta, así que no queda a un paso de una frase mal interpretada por el modelo. En su lugar, `/crear-ticket` en Slack abre un formulario (modal) con campos fijos: tipo, título y descripción. El proyecto de Jira es fijo (`JIRA_PROJECT_KEY`), no editable desde el formulario.
+A diferencia de las tools de arriba, `crear_ticket`, `comentar_ticket` y `listar_tipos_issue` (en `scripts/tools.py`) **no** están expuestas al agente conversacional — crear datos en Jira es una acción con efectos reales, no una consulta, así que no queda a un paso de una frase mal interpretada por el modelo. En su lugar, `/crear-ticket` en Slack abre un formulario (modal) con campos fijos: tipo, título y descripción. El proyecto de Jira es fijo (`JIRA_PROJECT_KEY`), no editable desde el formulario, y el selector de *tipo* se llena con los tipos de issue reales del proyecto (`listar_tipos_issue`, consultados una vez y cacheados en memoria) — no una lista fija, porque varían por esquema de proyecto e idioma (un proyecto puede no tener "Task", o llamarlo "Tarea").
 
 Controles antes de que algo llegue a Jira:
 

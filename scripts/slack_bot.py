@@ -39,8 +39,8 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from tools import (
-    MAX_DESCRIPCION, MAX_TITULO, TIPOS_PERMITIDOS, TOOL_FUNCTIONS, TOOL_SCHEMAS,
-    comentar_ticket, crear_ticket,
+    MAX_DESCRIPCION, MAX_TITULO, TOOL_FUNCTIONS, TOOL_SCHEMAS,
+    comentar_ticket, crear_ticket, listar_tipos_issue,
 )
 
 MODEL = "claude-sonnet-4-6"
@@ -145,7 +145,27 @@ def _guardar_borrador(datos):
     return token
 
 
-def _modal_crear_ticket():
+# Los tipos de issue disponibles dependen del esquema de CADA proyecto de Jira
+# (y de su idioma -- un proyecto puede no tener "Task", o llamarlo "Tarea").
+# Se consultan una vez y se cachean en memoria mientras el proceso corre; si
+# el esquema del proyecto cambia, hace falta reiniciar el bot para verlo
+# reflejado (mismo criterio que el resto del estado en memoria de este archivo).
+_tipos_cache = None
+
+
+def _tipos_disponibles():
+    global _tipos_cache
+    if _tipos_cache is not None:
+        return _tipos_cache
+    resultado = listar_tipos_issue(JIRA_PROJECT_KEY)
+    if "error" in resultado or not resultado.get("tipos"):
+        logger.warning("No se pudieron leer los tipos de issue de %s: %s", JIRA_PROJECT_KEY, resultado.get("error"))
+        return None  # no cacheamos el fallo: el proximo intento vuelve a consultar
+    _tipos_cache = resultado["tipos"]
+    return _tipos_cache
+
+
+def _modal_crear_ticket(tipos):
     return {
         "type": "modal",
         "callback_id": "modal_crear_ticket",
@@ -164,7 +184,7 @@ def _modal_crear_ticket():
                 "element": {
                     "type": "static_select",
                     "action_id": "tipo",
-                    "options": [{"text": {"type": "plain_text", "text": t}, "value": t} for t in TIPOS_PERMITIDOS],
+                    "options": [{"text": {"type": "plain_text", "text": t}, "value": t} for t in tipos],
                 },
             },
             {
@@ -345,8 +365,15 @@ def cmd_crear_ticket(ack, command, client):
                                    text="⏳ Estás usando el comando muy seguido. Espera un minuto.")
         return
 
-    logger.info("/crear-ticket abierto por usuario=%s en canal=%s", usuario, canal)
-    client.views_open(trigger_id=command["trigger_id"], view=_modal_crear_ticket())
+    tipos = _tipos_disponibles()
+    if not tipos:
+        client.chat_postEphemeral(channel=canal, user=usuario,
+                                   text=f"⚠️ No pude leer los tipos de issue disponibles en {JIRA_PROJECT_KEY} "
+                                        "(¿el proyecto existe y las credenciales de Jira son correctas?). Intenta de nuevo en un momento.")
+        return
+
+    logger.info("/crear-ticket abierto por usuario=%s en canal=%s (tipos=%s)", usuario, canal, tipos)
+    client.views_open(trigger_id=command["trigger_id"], view=_modal_crear_ticket(tipos))
 
 
 @app.view("modal_crear_ticket")
