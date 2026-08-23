@@ -184,6 +184,20 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 
 El conocimiento del proceso vive en `scripts/process-template.yml`, un archivo editable. **Cuando el proceso cambia, se edita ese archivo — no el código.**
 
+### Crear tickets desde Slack: `/crear-ticket`
+
+A diferencia de las tools de arriba, `crear_ticket` y `comentar_ticket` (en `scripts/tools.py`) **no** están expuestas al agente conversacional — crear datos en Jira es una acción con efectos reales, no una consulta, así que no queda a un paso de una frase mal interpretada por el modelo. En su lugar, `/crear-ticket` en Slack abre un formulario (modal) con campos fijos: tipo, título y descripción. El proyecto de Jira es fijo (`JIRA_PROJECT_KEY`), no editable desde el formulario.
+
+Controles antes de que algo llegue a Jira:
+
+- **Canal restringido** — el comando solo responde en `JIRA_TICKET_CHANNEL_ID`; en cualquier otro canal, se rechaza.
+- **Validación del formulario** — errores inline en el propio modal (título vacío, límites de longitud) antes de aceptar el envío.
+- **Confirmación explícita de dos pasos** — el modal nunca crea el ticket directo; publica un resumen con botones *Confirmar*/*Cancelar*, y solo quien inició la creación puede confirmarla o cancelarla.
+- **Rate limiting** — reutiliza el mismo límite por usuario que las consultas normales del bot.
+- **Trazabilidad** — al crear el ticket, se agrega un comentario automático en el propio issue ("Creado vía DeployGo Assistant por @usuario en #canal") además del log server-side.
+
+Después de crear el ticket, el bot ofrece un botón **"Armar spec"**: genera un borrador de `specs/<TICKET>.yml` a partir del título ya capturado, con los campos `cambios_permitidos`/`cambios_prohibidos`/`contrato`/`evidencia_requerida` marcados como `TODO` para completar. El bot **no** lo commitea solo — lo entrega listo para copiar, y el developer lo pega como primer commit de su rama, igual que el resto del flujo de specs.
+
 ---
 
 ## Configuración
@@ -207,7 +221,11 @@ export JIRA_API_TOKEN="tu-token"
 export GITHUB_REPO="$GITHUB_REPOSITORY"
 export SLACK_BOT_TOKEN="xoxb-..."   # solo para el bot
 export SLACK_APP_TOKEN="xapp-..."   # solo para el bot
+export JIRA_TICKET_CHANNEL_ID="C0123456"   # opcional: habilita /crear-ticket, solo en este canal
+export JIRA_PROJECT_KEY="SCRUM"            # opcional: proyecto fijo para /crear-ticket
 ```
+
+Si `JIRA_TICKET_CHANNEL_ID` o `JIRA_PROJECT_KEY` no están definidos, `/crear-ticket` responde que no está configurado en vez de fallar — el resto del bot funciona igual sin ellos.
 
 ### Protección del trunk
 

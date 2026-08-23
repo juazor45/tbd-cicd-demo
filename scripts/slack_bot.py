@@ -11,9 +11,15 @@ Formas de invocarlo en Slack:
   /release SCRUM-10              → slash command
   @DeployGo ¿en qué va SCRUM-10? → mención en un canal
   mensaje directo al bot         → conversación privada
+  /crear-ticket                  → abre un formulario para crear un issue en Jira
 
 Cada hilo (thread) mantiene su propio historial, así el equipo puede
 tener varias consultas en paralelo sin mezclarlas.
+
+/crear-ticket es deliberadamente distinto al resto: no pasa por el agente de
+IA ni por texto libre. Es un formulario (modal de Slack) con confirmación
+explícita antes de escribir en Jira, restringido a un canal designado
+(JIRA_TICKET_CHANNEL_ID). Ver la sección "Creación de tickets" más abajo.
 
 Ejecutar:
     pip install slack-bolt anthropic
@@ -25,13 +31,17 @@ import logging
 import os
 import re
 import time
+import uuid
 from collections import OrderedDict, deque
 
 from anthropic import Anthropic
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from tools import TOOL_SCHEMAS, TOOL_FUNCTIONS
+from tools import (
+    MAX_DESCRIPCION, MAX_TITULO, TIPOS_PERMITIDOS, TOOL_FUNCTIONS, TOOL_SCHEMAS,
+    comentar_ticket, crear_ticket,
+)
 
 MODEL = "claude-sonnet-4-6"
 MAX_ITER = 8
@@ -40,6 +50,14 @@ MAX_MENSAJES_POR_HILO = 40   # recorta el historial de un hilo muy largo
 RATE_LIMIT_MAX = 6           # máximo de preguntas...
 RATE_LIMIT_WINDOW_S = 60     # ...por usuario, cada N segundos
 MAX_USUARIOS_RATE_LIMIT = 500  # tope de usuarios trackeados en memoria
+
+# /crear-ticket: canal donde se permite el comando, y proyecto de Jira fijo
+# (no editable desde el formulario -- evita crear issues en proyectos no
+# previstos). Si cualquiera de los dos falta, el comando se desactiva solo,
+# con un mensaje claro, en vez de que el proceso truene al arrancar.
+JIRA_TICKET_CHANNEL_ID = os.environ.get("JIRA_TICKET_CHANNEL_ID", "")
+JIRA_PROJECT_KEY = os.environ.get("JIRA_PROJECT_KEY", "")
+MAX_BORRADORES = 200  # tope de confirmaciones de ticket pendientes en memoria
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("deploygo-slack-bot")
@@ -107,6 +125,90 @@ def _historial(hilo_id):
     mensajes = []
     _hilos[hilo_id] = mensajes
     return mensajes
+
+
+# ----------------------------------------------------------------------
+# Creación de tickets: /crear-ticket
+# ----------------------------------------------------------------------
+# Estado efímero (vive solo mientras el proceso corre, igual que _hilos y
+# _rate_limit): el modal de Slack solo puede llevar ~2000 caracteres por
+# botón, así que en vez de meter titulo+descripcion en el botón de
+# "Confirmar" guardamos el borrador acá y el botón solo lleva un token corto.
+_borradores: "OrderedDict[str, dict]" = OrderedDict()
+
+
+def _guardar_borrador(datos):
+    token = uuid.uuid4().hex[:12]
+    if len(_borradores) >= MAX_BORRADORES:
+        _borradores.popitem(last=False)
+    _borradores[token] = datos
+    return token
+
+
+def _modal_crear_ticket():
+    return {
+        "type": "modal",
+        "callback_id": "modal_crear_ticket",
+        "title": {"type": "plain_text", "text": "Crear ticket"},
+        "submit": {"type": "plain_text", "text": "Continuar"},
+        "close": {"type": "plain_text", "text": "Cancelar"},
+        "blocks": [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"Proyecto: *{JIRA_PROJECT_KEY}* (fijo, no editable)"}],
+            },
+            {
+                "type": "input",
+                "block_id": "b_tipo",
+                "label": {"type": "plain_text", "text": "Tipo"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "tipo",
+                    "options": [{"text": {"type": "plain_text", "text": t}, "value": t} for t in TIPOS_PERMITIDOS],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "b_titulo",
+                "label": {"type": "plain_text", "text": "Título"},
+                "element": {"type": "plain_text_input", "action_id": "titulo", "max_length": MAX_TITULO},
+            },
+            {
+                "type": "input",
+                "block_id": "b_descripcion",
+                "label": {"type": "plain_text", "text": "Descripción"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "descripcion",
+                    "multiline": True, "max_length": MAX_DESCRIPCION,
+                },
+            },
+        ],
+    }
+
+
+def _borrador_spec(ticket, titulo):
+    """Genera un borrador de specs/<TICKET>.yml a partir de los datos ya
+    capturados. Es un punto de partida para editar, no un spec terminado --
+    cambios_permitidos/prohibidos y evidencia_requerida dependen del codigo
+    real que se va a tocar, algo que el formulario de creacion no conoce."""
+    titulo_esc = titulo.replace('"', "'")
+    return f'''ticket: {ticket}
+titulo: "{titulo_esc}"
+
+cambios_permitidos:
+  - "TODO: rutas que este cambio SI puede tocar, ej. src/main/java/.../paquete/**"
+
+cambios_prohibidos:
+  - "TODO: rutas que este cambio NO debe tocar, ej. .github/workflows/**"
+
+contrato: >
+  TODO: que comportamiento (de API, de datos, de lo que sea) tiene que
+  preservarse o agregarse con este cambio.
+
+evidencia_requerida:
+  - "TODO: que prueba que el trabajo quedo hecho, ej. un test nuevo"
+  - "CI (ci-pr.yml) en verde"
+'''
 
 
 def _ejecutar_tool(nombre, args):
@@ -221,6 +323,153 @@ def on_dm(event, say, client):
     hilo = event.get("thread_ts") or event["ts"]
     logger.info("DM user=%s hilo=%s pregunta=%r", event.get("user"), hilo, event.get("text", ""))
     responder(say, client, event["channel"], hilo, event.get("text", ""), usuario=event.get("user"))
+
+
+@app.command("/crear-ticket")
+def cmd_crear_ticket(ack, command, client):
+    ack()
+    usuario = command.get("user_id")
+    canal = command["channel_id"]
+
+    if not JIRA_TICKET_CHANNEL_ID or not JIRA_PROJECT_KEY:
+        logger.warning("/crear-ticket invocado pero falta JIRA_TICKET_CHANNEL_ID o JIRA_PROJECT_KEY")
+        client.chat_postEphemeral(channel=canal, user=usuario,
+                                   text="⚠️ Este comando no está configurado todavía (falta JIRA_TICKET_CHANNEL_ID o JIRA_PROJECT_KEY).")
+        return
+    if canal != JIRA_TICKET_CHANNEL_ID:
+        client.chat_postEphemeral(channel=canal, user=usuario,
+                                   text=f"⚠️ /crear-ticket solo funciona en <#{JIRA_TICKET_CHANNEL_ID}>.")
+        return
+    if _rate_limited(usuario):
+        client.chat_postEphemeral(channel=canal, user=usuario,
+                                   text="⏳ Estás usando el comando muy seguido. Espera un minuto.")
+        return
+
+    logger.info("/crear-ticket abierto por usuario=%s en canal=%s", usuario, canal)
+    client.views_open(trigger_id=command["trigger_id"], view=_modal_crear_ticket())
+
+
+@app.view("modal_crear_ticket")
+def on_modal_crear_ticket(ack, body, view, client):
+    valores = view["state"]["values"]
+    seleccion = valores["b_tipo"]["tipo"].get("selected_option")
+    tipo = seleccion["value"] if seleccion else None
+    titulo = (valores["b_titulo"]["titulo"].get("value") or "").strip()
+    descripcion = (valores["b_descripcion"]["descripcion"].get("value") or "").strip()
+
+    # Validar acá y devolver errores inline en el propio modal (mejor experiencia
+    # que aceptar el formulario y recién avisar después que algo estaba mal).
+    errores = {}
+    if not tipo:
+        errores["b_tipo"] = "Selecciona un tipo."
+    if not titulo:
+        errores["b_titulo"] = "El título no puede estar vacío."
+    elif len(titulo) > MAX_TITULO:
+        errores["b_titulo"] = f"Máximo {MAX_TITULO} caracteres."
+    if len(descripcion) > MAX_DESCRIPCION:
+        errores["b_descripcion"] = f"Máximo {MAX_DESCRIPCION} caracteres."
+    if errores:
+        ack(response_action="errors", errors=errores)
+        return
+    ack()
+
+    usuario = body["user"]["id"]
+    token = _guardar_borrador({
+        "proyecto": JIRA_PROJECT_KEY, "tipo": tipo, "titulo": titulo,
+        "descripcion": descripcion, "usuario": usuario,
+    })
+    logger.info("Borrador de ticket %s creado por usuario=%s (pendiente de confirmar)", token, usuario)
+
+    resumen = (
+        f"*Vas a crear este ticket:*\n"
+        f"• Proyecto: `{JIRA_PROJECT_KEY}`\n"
+        f"• Tipo: `{tipo}`\n"
+        f"• Título: {titulo}\n"
+        f"• Descripción: {descripcion or '_(sin descripción)_'}"
+    )
+    client.chat_postMessage(
+        channel=JIRA_TICKET_CHANNEL_ID,
+        text=resumen,
+        blocks=[
+            {"type": "section", "text": {"type": "mrkdwn", "text": resumen}},
+            {"type": "actions", "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": "✅ Confirmar"}, "style": "primary",
+                 "action_id": "crear_ticket_confirmar", "value": token},
+                {"type": "button", "text": {"type": "plain_text", "text": "Cancelar"},
+                 "action_id": "crear_ticket_cancelar", "value": token},
+            ]},
+        ],
+    )
+
+
+@app.action("crear_ticket_confirmar")
+def on_confirmar_ticket(ack, body, client):
+    ack()
+    token = body["actions"][0]["value"]
+    canal = body["channel"]["id"]
+    ts = body["message"]["ts"]
+    usuario_click = body["user"]["id"]
+    datos = _borradores.pop(token, None)
+
+    if not datos:
+        client.chat_update(channel=canal, ts=ts, text="⚠️ Esta confirmación ya expiró o ya se usó.")
+        return
+    if usuario_click != datos["usuario"]:
+        # Evita que un tercero confirme/cancele una creación que no inició.
+        client.chat_postEphemeral(channel=canal, user=usuario_click,
+                                   text="Solo quien inició la creación puede confirmarla.")
+        _borradores[token] = datos  # lo devolvemos: el intento invalido no debe consumirlo
+        return
+
+    resultado = crear_ticket(datos["proyecto"], datos["tipo"], datos["titulo"], datos["descripcion"])
+    if "error" in resultado:
+        logger.warning("crear_ticket fallo para usuario=%s: %s", datos["usuario"], resultado["error"])
+        client.chat_update(channel=canal, ts=ts, text=f"❌ No se pudo crear el ticket: {resultado['error']}")
+        return
+
+    ticket, url = resultado["ticket"], resultado["url"]
+    logger.info("Ticket %s creado por usuario=%s desde canal=%s", ticket, datos["usuario"], canal)
+
+    nota = f"Creado vía DeployGo Assistant por <@{datos['usuario']}> en <#{canal}>."
+    comentario = comentar_ticket(ticket, nota)
+    if "error" in comentario:
+        logger.warning("No se pudo dejar el comentario de trazabilidad en %s: %s", ticket, comentario["error"])
+
+    client.chat_update(
+        channel=canal, ts=ts,
+        text=f"✅ Ticket creado: {url}",
+        blocks=[
+            {"type": "section", "text": {"type": "mrkdwn",
+             "text": f"✅ *Ticket creado:* <{url}|{ticket}> — {datos['titulo']}"}},
+            {"type": "actions", "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": "📄 Armar spec"},
+                 "action_id": "armar_spec",
+                 "value": json.dumps({"ticket": ticket, "titulo": datos["titulo"]}, ensure_ascii=False)},
+            ]},
+        ],
+    )
+
+
+@app.action("crear_ticket_cancelar")
+def on_cancelar_ticket(ack, body, client):
+    ack()
+    token = body["actions"][0]["value"]
+    _borradores.pop(token, None)
+    client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"],
+                        text="Cancelado. No se creó ningún ticket.")
+
+
+@app.action("armar_spec")
+def on_armar_spec(ack, body, client):
+    ack()
+    datos = json.loads(body["actions"][0]["value"])
+    ticket = datos["ticket"]
+    borrador = _borrador_spec(ticket, datos["titulo"])
+    texto = (
+        f"Borrador de `specs/{ticket}.yml` -- ajusta los TODO antes de "
+        f"commitearlo como primer commit de la rama:\n```{borrador}```"
+    )
+    client.chat_postMessage(channel=body["channel"]["id"], thread_ts=body["message"]["ts"], text=texto)
 
 
 if __name__ == "__main__":
