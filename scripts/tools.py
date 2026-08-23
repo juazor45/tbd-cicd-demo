@@ -9,8 +9,9 @@ Cada función es una "tool" que el agente puede invocar:
   - detalle_ejecucion     → jobs y steps de un run (dónde se quedó)
   - consultar_proceso     → el template del proceso (fases, evidencia, siguiente paso)
 
-crear_ticket() y comentar_ticket() (creacion de issues en Jira) viven en este
-archivo por consistencia, pero a proposito NO estan en TOOL_SCHEMAS/TOOL_FUNCTIONS:
+crear_ticket(), comentar_ticket() y listar_tipos_issue() (creacion de issues en
+Jira) viven en este archivo por consistencia, pero a proposito NO estan en
+TOOL_SCHEMAS/TOOL_FUNCTIONS:
 no son tools que el agente conversacional pueda invocar libremente por texto libre.
 Las llama directo scripts/slack_bot.py, y solo despues de pasar por su propio
 control de acceso (canal autorizado), confirmacion explicita del usuario, y rate
@@ -171,7 +172,6 @@ def consultar_proceso():
 # Creacion de tickets (NO expuestas al agente conversacional -- ver docstring
 # del modulo). Solo las llama el flujo de /crear-ticket en slack_bot.py.
 # ----------------------------------------------------------------------
-TIPOS_PERMITIDOS = ("Story", "Bug", "Task")
 MAX_TITULO = 120
 MAX_DESCRIPCION = 2000
 
@@ -187,6 +187,35 @@ def _adf(texto):
     }
 
 
+def listar_tipos_issue(proyecto):
+    """Tipos de issue disponibles para crear en un proyecto (excluye subtareas).
+
+    Usa GET /rest/api/3/issuetype/project -- el endpoint de "get issue types
+    for project", que Atlassian confirmo que NO forma parte de la
+    deprecacion del viejo /issue/createmeta (ese devuelve 404 desde jun-2024).
+    Los nombres de tipo varian por proyecto y por idioma del sitio (ej. un
+    proyecto puede no tener "Task", o llamarlo "Tarea") -- por eso esto se
+    consulta en vez de asumir un set fijo.
+    """
+    logger.info("tool listar_tipos_issue(proyecto=%s)", proyecto)
+    base = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+
+    code, proyecto_data = http_get(f"{base}/rest/api/3/project/{proyecto}", jira_headers())
+    if code != 200:
+        logger.warning("listar_tipos_issue: no se pudo resolver el proyecto %s (HTTP %s)", proyecto, code)
+        return {"error": f"No se pudo resolver el proyecto {proyecto} (HTTP {code})."}
+    project_id = proyecto_data.get("id")
+
+    code, data = http_get(f"{base}/rest/api/3/issuetype/project?projectId={project_id}", jira_headers())
+    if code != 200:
+        logger.warning("listar_tipos_issue(%s) fallo: HTTP %s", proyecto, code)
+        return {"error": f"No se pudieron leer los tipos de issue de {proyecto} (HTTP {code})."}
+
+    tipos = [t["name"] for t in data if not t.get("subtask")]
+    logger.info("listar_tipos_issue(%s) OK: %s", proyecto, tipos)
+    return {"tipos": tipos}
+
+
 def crear_ticket(proyecto, tipo, titulo, descripcion):
     """Crea un issue en Jira. Valida localmente antes de llamar a la API para dar
     mejores mensajes de error que los que devuelve Jira directo. No hace ninguna
@@ -195,8 +224,8 @@ def crear_ticket(proyecto, tipo, titulo, descripcion):
     titulo = (titulo or "").strip()
     descripcion = (descripcion or "").strip()
 
-    if tipo not in TIPOS_PERMITIDOS:
-        return {"error": f"Tipo de issue no permitido: {tipo!r}. Debe ser uno de {TIPOS_PERMITIDOS}."}
+    if not tipo:
+        return {"error": "Falta el tipo de issue."}
     if not titulo:
         return {"error": "El titulo no puede estar vacio."}
     if len(titulo) > MAX_TITULO:
