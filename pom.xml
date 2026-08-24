@@ -6,11 +6,15 @@
 
   <groupId>com.demo</groupId>
   <artifactId>ms-exchange-rate</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>${revision}</version>
   <name>ms-exchange-rate</name>
   <description>Microservicio Quarkus demo de tipos de cambio (TBD + CI/CD)</description>
 
   <properties>
+    <!-- CI Friendly Version: scripts/version.py calcula el valor real en cada
+         build (mvn -Drevision=X.Y.Z-... verify). 0.0.0-SNAPSHOT es solo el
+         default para builds locales sin ese flag. Ver README > Versionado. -->
+    <revision>0.0.0-SNAPSHOT</revision>
     <compiler-plugin.version>3.15.0</compiler-plugin.version>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

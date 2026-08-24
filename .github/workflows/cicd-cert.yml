@@ -1,13 +1,9 @@
 name: CICD-CERT
-run-name: CICD-CERT · ${{ inputs.change_ticket }} · ${{ inputs.version }}
+run-name: CICD-CERT · ${{ inputs.component }} · ${{ inputs.change_ticket }}
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Versión del artefacto (ej. 1.0.0-RC1)'
-        required: true
-        default: '1.0.0-RC1'
       component:
         description: 'Componente / microservicio a desplegar'
         required: true
@@ -15,6 +11,10 @@ on:
       change_ticket:
         description: 'Ticket Jira (ej. SCRUM-6)'
         required: true
+      version_override:
+        description: 'Forzar una versión específica (opcional -- normalmente se calcula sola como release candidate SemVer)'
+        required: false
+        default: ''
       run_cd:
         description: '¿Ejecutar despliegue (CD) después del CI?'
         required: true
@@ -37,9 +37,12 @@ jobs:
     timeout-minutes: 20
     outputs:
       artifact_id: ${{ steps.publish.outputs.artifact_id }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # necesario: scripts/version.py necesita ver los tags e historial completo
 
       - name: Validar que el código proviene del trunk
         if: ${{ github.ref_name != 'main' }}
@@ -55,6 +58,18 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+
+      - name: Calcular versión de release candidate (SemVer automático)
+        id: version
+        run: |
+          if [ -n "${{ inputs.version_override }}" ]; then
+            VERSION="${{ inputs.version_override }}"
+            echo "⚠️  Usando versión forzada manualmente: $VERSION"
+          else
+            VERSION="$(python3 scripts/version.py --stage rc --explain)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "📦 Versión de este release candidate: $VERSION"
 
       - name: Jira - Validar ticket e iniciar Congelamiento
         env:
@@ -97,7 +112,7 @@ jobs:
           echo "✅ Secretos obtenidos"
 
       - name: Build & Unit Tests (Maven)
-        run: mvn -B verify
+        run: mvn -B -Drevision=${{ steps.version.outputs.version }} verify
 
       - name: SonarQube (SAST / Quality Gate)
         run: |
@@ -112,7 +127,7 @@ jobs:
       - name: Publish Artifact
         id: publish
         run: |
-          ARTIFACT_ID="${{ github.event.inputs.component }}-${{ github.event.inputs.version }}"
+          ARTIFACT_ID="${{ github.event.inputs.component }}-${{ steps.version.outputs.version }}"
           echo "📦 Artefacto generado: target/quarkus-app/ (fast-jar Quarkus)"
           echo "📦 [MOCK] Promoviendo a Artifactory (libs-release-candidate-local)..."
           echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
@@ -166,11 +181,12 @@ jobs:
         run: |
           echo "🔧 Preparando despliegue en CERT..."
           echo "Artefacto     : ${{ needs.ci.outputs.artifact_id }}"
+          echo "Versión       : ${{ needs.ci.outputs.version }}"
           echo "Change ticket : ${{ github.event.inputs.change_ticket }}"
 
       - name: Build and Push Registry
         run: |
-          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ github.event.inputs.version }}"
+          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ needs.ci.outputs.version }}"
           docker build -t "$IMAGE" .
           echo "🐳 [MOCK] docker push $IMAGE"
           echo "✅ Imagen construida: $IMAGE"
@@ -182,7 +198,7 @@ jobs:
 
       - name: Deploy to Kubernetes Cluster
         run: |
-          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ github.event.inputs.version }}"
+          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ needs.ci.outputs.version }}"
           echo "🚀 [MOCK] helm upgrade --install ${{ github.event.inputs.component }} ./chart -n $K8S_NAMESPACE"
           echo "🚀 Simulando el despliegue levantando el contenedor en el runner..."
           docker run -d --name ms-cert -p 8080:8080 "$IMAGE"

@@ -1,0 +1,90 @@
+name: Release
+run-name: Release · ${{ inputs.change_ticket }}
+
+# Cierre del flujo de versionado: se corre a mano cuando QA ya certificó el
+# ticket en Jira (estado "QA Testing Done"). No reconstruye nada -- confía en
+# que CICD-CERT ya validó el código en 'main' -- solo calcula la versión
+# final de release, la taggea y publica el GitHub Release.
+on:
+  workflow_dispatch:
+    inputs:
+      change_ticket:
+        description: 'Ticket Jira que se libera (debe estar en "QA Testing Done")'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag + GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # necesario: tags completos para scripts/version.py y para las notas del release
+          ref: main
+
+      - name: Validar que el ticket completó QA
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ inputs.change_ticket }}
+        run: |
+          STATUS=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET?fields=status,summary" \
+            | jq -r '.fields.status.name // empty')
+
+          if [ -z "$STATUS" ]; then
+            echo "❌ El ticket $TICKET no existe o las credenciales fallan. Abortando."
+            exit 1
+          fi
+          echo "Estado actual: $STATUS"
+
+          if [ "$STATUS" != "QA Testing Done" ]; then
+            echo "❌ Para crear un release el ticket debe estar en 'QA Testing Done' (está en '$STATUS')."
+            echo "   El release cierra el ciclo -- si QA todavía no certificó, no hay nada que liberar. Abortando."
+            exit 1
+          fi
+
+      - name: Calcular versión de release (SemVer automático)
+        id: version
+        run: |
+          VERSION="$(python3 scripts/version.py --stage release --explain)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "📦 Versión de release: v$VERSION"
+
+      - name: Crear tag anotado
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.version.outputs.version }}" \
+            -m "Release v${{ steps.version.outputs.version }} -- ${{ inputs.change_ticket }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Crear GitHub Release (notas autogeneradas)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            --title "v${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            --notes "Ticket: ${{ inputs.change_ticket }}"
+
+      - name: Comentar el release en el ticket de Jira
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ inputs.change_ticket }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }}
+        run: |
+          curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/comment" \
+            -d "{\"body\": {\"type\": \"doc\", \"version\": 1, \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Release v$VERSION publicado: $RELEASE_URL\"}]}]}}"
+          echo "📋 $TICKET comentado con el release v$VERSION"
