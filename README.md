@@ -240,16 +240,51 @@ Los dos workflows de CI/CD conservan un input opcional `version_override` por si
 
 ### `Release`: el cierre del ciclo
 
-`.github/workflows/release.yml` es manual y deliberadamente el último paso, no parte de `CICD-CERT`: valida que el ticket ya esté en **QA Testing Done** en Jira (si no, aborta — igual que `CICD-CERT` valida el estado antes de certificar), calcula la versión final, crea un **tag anotado `vX.Y.Z`** sobre `main`, publica un **GitHub Release** con notas autogeneradas (compara contra el tag anterior y lista los PRs mergeados), y deja un comentario en el ticket de Jira con el link al release.
+`.github/workflows/release.yml` es deliberadamente el último paso, no parte de `CICD-CERT`: valida que el ticket ya esté en **QA Testing Done** en Jira (si no, aborta — igual que `CICD-CERT` valida el estado antes de certificar), calcula la versión final, crea un **tag anotado `vX.Y.Z`** sobre `main`, publica un **GitHub Release** con notas autogeneradas (compara contra el tag anterior y lista los PRs mergeados), y deja un comentario en el ticket de Jira con el link al release.
 
 ```
 Construcción Doing → Construcción Done → Congelamiento Doing → Congelamiento Done
         (rama)         (CICD-DEV)          (CICD-CERT)           (CICD-CERT)
    → QA Testing Doing → QA Testing Done → [workflow Release] → tag vX.Y.Z + GitHub Release
-      (CICD-CERT)        (manual, QA)
+      (CICD-CERT)        (QA, ver abajo)
 ```
 
-Solo se taggea ese punto final — ni dev ni cert ensucian el historial de tags, solo generan un identificador de build trazable (`-dev.<sha>` / `-rc.<sha>`) para saber exactamente qué commit se desplegó, sin crear un tag por cada corrida.
+Solo se taggea ese punto final — ni dev ni cert ensucian el historial de tags, solo generan un identificador de build trazable (`-dev.<sha>` / `-rc.<sha>`) para saber exactamente qué commit se desplegó, sin crear un tag por cada corrida. No se metió este paso dentro de `CICD-CERT` a propósito: un tag debe significar "QA lo certificó", no "el pipeline de cert pasó" — y `CICD-CERT` se re-corre seguido (flaky tests, ajustes menores) antes de que QA firme, así que taguear ahí ensuciaría el historial con releases que nunca se llegaron a entregar.
+
+`release.yml` acepta **dos formas de dispararse**, y en ambas vuelve a consultar el estado real del ticket en Jira antes de taggear — nunca confía ciegamente en quién lo llamó:
+
+| Disparo | Cómo |
+|---|---|
+| Manual | **Actions → Release → Run workflow**, con el ticket a mano |
+| Automático | Una regla de **Jira Automation** dispara un evento `repository_dispatch` en cuanto el ticket pasa a "QA Testing Done" — ver abajo |
+
+### Disparo automático (Jira Automation)
+
+Para que el release se dispare solo, sin que nadie tenga que entrar a Actions: una regla de Jira Automation llama a la API de GitHub (`POST /repos/.../dispatches`) apenas el ticket transiciona a "QA Testing Done". GitHub recibe ese evento como `repository_dispatch` (`type: jira-qa-done`) y arranca `release.yml` igual que si alguien lo hubiera corrido a mano.
+
+**1. Generar el token que usará Jira para llamar a GitHub**
+
+Un Personal Access Token con permiso de escritura sobre el repo (idealmente uno *fine-grained*, acotado solo a `tbd-cicd-demo`, con permiso `Contents: Read and write` — nada más). Este token va a vivir dentro de Jira, no en los secrets del repo, así que conviene que sea uno dedicado a esto y no el mismo que uses para otra cosa.
+
+**2. Crear la regla en Jira** (`Configuración del proyecto → Automatización → Crear regla`, o Automatización global)
+
+- **Trigger**: *Issue transitioned* → *To status*: `QA Testing Done`.
+- **Condición** (opcional pero recomendada): `Project = SCRUM` (o el proyecto que corresponda), para que la regla no dispare releases de tickets de otros proyectos.
+- **Acción**: *Send web request*
+  - URL: `https://api.github.com/repos/juazor45/tbd-cicd-demo/dispatches`
+  - Método: `POST`
+  - Headers: `Authorization: Bearer <el token del paso 1>` y `Accept: application/vnd.github+json`
+  - Body (JSON personalizado):
+    ```json
+    {
+      "event_type": "jira-qa-done",
+      "client_payload": { "issue_key": "{{issue.key}}" }
+    }
+    ```
+
+Si tu plan de Jira soporta *secrets* dentro de Automatización, guarda el token ahí en vez de pegarlo directo en el header — así no queda visible para cualquiera que pueda editar la regla.
+
+**3. Probar la regla** sin esperar un ciclo completo: movés cualquier ticket a "QA Testing Done" a mano y revisás en **Actions** de GitHub que apareció una corrida de `Release` con ese ticket.
 
 ### Configuración adicional
 

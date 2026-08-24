@@ -1,16 +1,27 @@
 name: Release
-run-name: Release · ${{ inputs.change_ticket }}
+run-name: Release · ${{ inputs.change_ticket || github.event.client_payload.issue_key }}
 
-# Cierre del flujo de versionado: se corre a mano cuando QA ya certificó el
-# ticket en Jira (estado "QA Testing Done"). No reconstruye nada -- confía en
-# que CICD-CERT ya validó el código en 'main' -- solo calcula la versión
-# final de release, la taggea y publica el GitHub Release.
+# Cierre del flujo de versionado. No reconstruye nada -- confía en que
+# CICD-CERT ya validó el código en 'main' -- solo calcula la versión final,
+# la taggea y publica el GitHub Release. Dos formas de dispararlo:
+#
+#   1) Manual: Actions -> Release -> Run workflow (para forzarlo si hace falta).
+#   2) Automático: una regla de Jira Automation dispara un evento
+#      "repository_dispatch" (type: jira-qa-done) apenas el ticket pasa a
+#      "QA Testing Done" -- ver README > Versionado > Disparo automático.
+#
+# En AMBOS casos se vuelve a consultar el estado real del ticket en Jira
+# antes de taggear (paso "Validar que el ticket completó QA"): nunca se
+# confía ciegamente en el payload que llega desde afuera, sea manual o
+# automático.
 on:
   workflow_dispatch:
     inputs:
       change_ticket:
         description: 'Ticket Jira que se libera (debe estar en "QA Testing Done")'
         required: true
+  repository_dispatch:
+    types: [jira-qa-done]
 
 permissions:
   contents: write
@@ -27,12 +38,23 @@ jobs:
           fetch-depth: 0 # necesario: tags completos para scripts/version.py y para las notas del release
           ref: main
 
+      - name: Resolver ticket (manual o webhook de Jira)
+        id: ticket
+        run: |
+          TICKET="${{ inputs.change_ticket || github.event.client_payload.issue_key }}"
+          if [ -z "$TICKET" ]; then
+            echo "❌ No llegó ningún ticket (ni por input manual ni por el payload del webhook). Abortando."
+            exit 1
+          fi
+          echo "ticket=$TICKET" >> "$GITHUB_OUTPUT"
+          echo "🎫 Ticket: $TICKET  (disparado por: ${{ github.event_name }})"
+
       - name: Validar que el ticket completó QA
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          TICKET: ${{ inputs.change_ticket }}
+          TICKET: ${{ steps.ticket.outputs.ticket }}
         run: |
           STATUS=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
             "$JIRA_BASE_URL/rest/api/3/issue/$TICKET?fields=status,summary" \
@@ -62,7 +84,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "v${{ steps.version.outputs.version }}" \
-            -m "Release v${{ steps.version.outputs.version }} -- ${{ inputs.change_ticket }}"
+            -m "Release v${{ steps.version.outputs.version }} -- ${{ steps.ticket.outputs.ticket }}"
           git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Crear GitHub Release (notas autogeneradas)
@@ -72,14 +94,14 @@ jobs:
           gh release create "v${{ steps.version.outputs.version }}" \
             --title "v${{ steps.version.outputs.version }}" \
             --generate-notes \
-            --notes "Ticket: ${{ inputs.change_ticket }}"
+            --notes "Ticket: ${{ steps.ticket.outputs.ticket }}"
 
       - name: Comentar el release en el ticket de Jira
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          TICKET: ${{ inputs.change_ticket }}
+          TICKET: ${{ steps.ticket.outputs.ticket }}
           VERSION: ${{ steps.version.outputs.version }}
           RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }}
         run: |
