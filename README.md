@@ -15,6 +15,7 @@ Laboratorio funcional de un proceso de entrega de software completo: **Trunk-Bas
 | **Specs** | Contrato del cambio por ticket (`specs/<TICKET>.yml`): qué debe cambiar, qué no debe tocarse, y evidencia requerida |
 | **Dashboard de auditoría** | `docs/dashboard.md` (tabla) + `docs/dashboard.html` (panel visual con buscador): por cada ticket, spec + estado en Jira + fase del proceso + pipelines + PRs, todo enlazado |
 | **Asistente** | Agente de IA con 5 herramientas, accesible desde Slack, terminal y Actions |
+| **Versionado** | SemVer calculado solo (`scripts/version.py`) desde tags + Conventional Commits; tag + GitHub Release al cerrar el ciclo |
 
 ---
 
@@ -115,6 +116,7 @@ docker build -t ms-exchange-rate:local .
 | `ci-pr.yml` | En cada PR hacia `main` | `mvn verify` real — es el check obligatorio del ruleset |
 | `cicd-dev.yml` | Manual, desde cualquier rama | CI completo + deploy a dev con smoke test → **Construcción Done**. Al terminar, marca el commit con el status `validado-en-dev` |
 | `cicd-cert.yml` | Manual, **solo desde `main`** | Valida origen y ticket, CI con policies estrictas, aprobación manual y deploy → **Congelamiento** y **QA Testing Doing** |
+| `release.yml` | Manual, tras QA Testing Done | Valida el estado del ticket, taggea `vX.Y.Z` y publica el GitHub Release — ver [sección 6](#6-versionado-semver--tags-de-git) |
 
 **Etapas de CI**: Prepare → Get Secrets (Vault) → Build & Tests (Maven) → SonarQube → Fortify → Publish Artifact → Component Test → SCA Xray
 
@@ -200,6 +202,61 @@ Después de crear el ticket, el bot ofrece un botón **"Armar spec"**: genera un
 
 ---
 
+## 6. Versionado (SemVer + tags de Git)
+
+Antes, la versión era un campo de texto libre que alguien escribía a mano en cada `workflow_dispatch` (`1.0.0-SNAPSHOT` en dev, `1.0.0-RC1` en cert, sin relación entre sí ni con `pom.xml`, que se quedó fijo desde el día uno). Ahora se calcula sola, en un solo lugar, y ese mismo número viaja por todo el pipeline.
+
+### Cómo se calcula
+
+`scripts/version.py` mira el último tag `vX.Y.Z` alcanzable y los commits nuevos desde ahí, y decide el bump siguiendo [Conventional Commits](https://www.conventionalcommits.org/) (el mismo estilo que ya se usa en este repo: `feat(...):`, `fix(...):`, `chore(...):`):
+
+| Se ve en los commits desde el último tag | Bump |
+|---|---|
+| Algún `feat!:`, `fix!:`, etc., o `BREAKING CHANGE` en el cuerpo | **MAJOR** (`X+1.0.0`) |
+| Ningún breaking, pero algún `feat:` | **MINOR** (`X.Y+1.0`) |
+| Ni breaking ni `feat:`, pero hay commits nuevos (`fix:`, `chore:`, etc.) | **PATCH** (`X.Y.Z+1`) |
+| Sin commits nuevos desde el tag | Se repite la misma versión |
+
+Si todavía no existe ningún tag en el repo, arranca desde `0.0.0`.
+
+```bash
+python3 scripts/version.py                  # X.Y.Z          -> versión de release
+python3 scripts/version.py --stage dev      # X.Y.Z-dev.<sha> -> build de CICD-DEV
+python3 scripts/version.py --stage rc       # X.Y.Z-rc.<sha>  -> build de CICD-CERT
+python3 scripts/version.py --explain        # + el razonamiento (tag base, commits, bump) por stderr
+```
+
+### Dónde se usa esa versión
+
+| Etapa | Quién la calcula | Qué la usa |
+|---|---|---|
+| `CICD-DEV` | Paso "Calcular versión" (`--stage dev`) | `mvn -Drevision=...`, el artefacto subido, el tag de la imagen Docker |
+| `CICD-CERT` | Paso "Calcular versión de release candidate" (`--stage rc`) | Igual que dev, con sufijo `-rc.<sha>` |
+| `Release` | Paso "Calcular versión de release" (`--stage release`, sin sufijo) | El tag anotado `vX.Y.Z` y el GitHub Release |
+
+`pom.xml` ya no tiene la versión fija — usa el patrón *CI Friendly Versions* de Maven (`<version>${revision}</version>`, con `0.0.0-SNAPSHOT` como default para builds locales) y cada workflow se la inyecta con `mvn -Drevision=$VERSION`. Ningún commit de "bump version": el número nunca vive escrito en el código.
+
+Los dos workflows de CI/CD conservan un input opcional `version_override` por si hace falta forzar un valor puntual (por ejemplo, para reintentar un build sin que el bump automático avance) — vacío por defecto, que es lo que dispara el cálculo automático.
+
+### `Release`: el cierre del ciclo
+
+`.github/workflows/release.yml` es manual y deliberadamente el último paso, no parte de `CICD-CERT`: valida que el ticket ya esté en **QA Testing Done** en Jira (si no, aborta — igual que `CICD-CERT` valida el estado antes de certificar), calcula la versión final, crea un **tag anotado `vX.Y.Z`** sobre `main`, publica un **GitHub Release** con notas autogeneradas (compara contra el tag anterior y lista los PRs mergeados), y deja un comentario en el ticket de Jira con el link al release.
+
+```
+Construcción Doing → Construcción Done → Congelamiento Doing → Congelamiento Done
+        (rama)         (CICD-DEV)          (CICD-CERT)           (CICD-CERT)
+   → QA Testing Doing → QA Testing Done → [workflow Release] → tag vX.Y.Z + GitHub Release
+      (CICD-CERT)        (manual, QA)
+```
+
+Solo se taggea ese punto final — ni dev ni cert ensucian el historial de tags, solo generan un identificador de build trazable (`-dev.<sha>` / `-rc.<sha>`) para saber exactamente qué commit se desplegó, sin crear un tag por cada corrida.
+
+### Configuración adicional
+
+`scripts/setup-repo.sh` ahora también protege el patrón de tags `v*` (`Settings → Tags → Tag protection rules`) para que un release publicado no se pueda borrar ni sobreescribir por error. El workflow `release.yml` empuja el tag con el `GITHUB_TOKEN` por defecto — a diferencia de `dashboard.yml`, esto no choca con el ruleset de `main` porque un tag no es una rama, así que no hace falta el PAT `DASHBOARD_BOT_TOKEN` para esto.
+
+---
+
 ## Configuración
 
 ### Secrets del repositorio (Actions)
@@ -239,10 +296,10 @@ En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Requ
 
 ```
 .
-├── .github/workflows/     jira-branch · ci-pr · cicd-dev · cicd-cert · dashboard · consulta-estado
+├── .github/workflows/     jira-branch · ci-pr · cicd-dev · cicd-cert · release · dashboard · consulta-estado
 ├── src/                   microservicio Quarkus (main y test)
 ├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
-├── scripts/               asistente: tools · slack_bot · assistant · dashboard · process-template
+├── scripts/               asistente: tools · slack_bot · assistant · dashboard · process-template · version
 ├── docs/                  estrategia de ramas + dashboard.md/dashboard.html (generados)
 ├── pom.xml
 └── Dockerfile

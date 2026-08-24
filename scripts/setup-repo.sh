@@ -32,6 +32,10 @@ gh api -X PUT "repos/$OWNER/$REPO/branches/main/protection" \
 }
 JSON
 
+echo "==> Protegiendo tags de release (v*) contra borrado/sobreescritura..."
+gh api -X POST "repos/$OWNER/$REPO/tags/protection" \
+  -f pattern='v*' >/dev/null 2>&1 || echo "    (ya existía o no se pudo crear -- revisar Settings > Tags a mano)"
+
 echo "==> Creando environments dev y cert..."
 gh api -X PUT "repos/$OWNER/$REPO/environments/dev" >/dev/null
 gh api -X PUT "repos/$OWNER/$REPO/environments/cert" >/dev/null
