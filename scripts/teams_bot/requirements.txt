@@ -1,0 +1,5 @@
+azure-functions>=1.21.0,<2
+botbuilder-core>=4.17.0,<5
+botbuilder-schema>=4.17.0,<5
+botbuilder-integration-aiohttp>=4.17.0,<5
+anthropic>=1.0.0,<2
