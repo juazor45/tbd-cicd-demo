@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "1.0.0",
+  "id": "REEMPLAZAR_CON_MicrosoftAppId",
+  "packageName": "com.tbdcicddemo.deploygoassistant",
+  "developer": {
+    "name": "tbd-cicd-demo",
+    "websiteUrl": "https://github.com/juazor45/tbd-cicd-demo",
+    "privacyUrl": "https://github.com/juazor45/tbd-cicd-demo",
+    "termsOfUseUrl": "https://github.com/juazor45/tbd-cicd-demo"
+  },
+  "name": {
+    "short": "DeployGo Assistant",
+    "full": "DeployGo Assistant -- asistente del SDLC agéntico"
+  },
+  "description": {
+    "short": "Consulta Jira/pipelines y crea tickets desde Teams.",
+    "full": "Asistente conversacional que cruza el estado de Jira y de los pipelines de GitHub Actions para responder dónde está un release y qué sigue. También permite crear tickets de Jira con /crear-ticket, con confirmación de dos pasos."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#1B1F3B",
+  "bots": [
+    {
+      "botId": "REEMPLAZAR_CON_MicrosoftAppId",
+      "scopes": ["team", "personal"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["team", "personal"],
+          "commands": [
+            {
+              "title": "crear-ticket",
+              "description": "Abre el formulario para crear un ticket de Jira"
+            },
+            {
+              "title": "¿en qué va SCRUM-11?",
+              "description": "Pregunta por el estado de cualquier ticket/release"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": []
+}

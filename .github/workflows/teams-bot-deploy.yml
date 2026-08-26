@@ -1,0 +1,80 @@
+name: Teams Bot - Deploy
+run-name: Teams Bot Deploy
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy Function App (DeployGo Assistant / Teams)
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Preparar paquete (sincronizar módulos compartidos)
+        run: |
+          # tools.py/http_client.py/specs/ viven en un solo lugar en el repo
+          # (scripts/ y specs/ en la raíz) -- se copian acá solo para el
+          # empaquetado de deploy, nunca se edita la copia a mano.
+          cp scripts/tools.py scripts/teams_bot/tools.py
+          cp scripts/http_client.py scripts/teams_bot/http_client.py
+          cp scripts/process-template.yml scripts/teams_bot/process-template.yml
+          rm -rf scripts/teams_bot/specs
+          cp -r specs scripts/teams_bot/specs
+          echo "📦 Módulos compartidos sincronizados en scripts/teams_bot/"
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Setup Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+
+      - name: Azure Login (OIDC, sin secretos)
+        uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configurar variables de la Function App
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          # Reutiliza los mismos Secrets que ya existen en el repo para
+          # spec-review.yml/cicd-cert.yml -- no hace falta cargar nada nuevo
+          # a mano, ni pasarle estos valores a Claude en ningún momento.
+          az functionapp config appsettings set \
+            -g "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            -n "${{ vars.AZURE_FUNCTIONAPP_NAME }}" \
+            --settings \
+              "SPECS_DIR=specs" \
+              "GITHUB_REPO=${{ github.repository }}" \
+              "JIRA_PROJECT_KEY=${{ vars.JIRA_PROJECT_KEY }}" \
+              "TEAMS_TICKET_CHANNEL_ID=${{ vars.TEAMS_TICKET_CHANNEL_ID }}" \
+              "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" \
+              "JIRA_BASE_URL=$JIRA_BASE_URL" \
+              "JIRA_EMAIL=$JIRA_EMAIL" \
+              "JIRA_API_TOKEN=$JIRA_API_TOKEN" \
+            >/dev/null
+          echo "✅ App settings configurados (MicrosoftAppType/Id/TenantId ya los dejó setup-azure-teams-bot.sh)."
+
+      - name: Publicar en Azure Functions
+        working-directory: scripts/teams_bot
+        run: func azure functionapp publish "${{ vars.AZURE_FUNCTIONAPP_NAME }}" --python
+
+      - name: Resumen
+        run: |
+          echo "🤖 Bot publicado en https://${{ vars.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/messages"
+          echo "   Probalo en Microsoft Teams, en el canal donde agregaste la app del bot."

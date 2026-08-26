@@ -1,0 +1,19 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+
+    "MicrosoftAppType": "UserAssignedMSI",
+    "MicrosoftAppId": "<client id de la Managed Identity del bot>",
+    "MicrosoftAppTenantId": "<tenant id>",
+
+    "ANTHROPIC_API_KEY": "sk-ant-...",
+    "JIRA_BASE_URL": "https://tusitio.atlassian.net",
+    "JIRA_EMAIL": "tu-correo",
+    "JIRA_API_TOKEN": "tu-token",
+    "GITHUB_REPO": "juazor45/tbd-cicd-demo",
+    "JIRA_PROJECT_KEY": "SCRUM",
+    "TEAMS_TICKET_CHANNEL_ID": "19:xxxxxxxx@thread.tacv2"
+  }
+}
