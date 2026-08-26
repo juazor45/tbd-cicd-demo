@@ -177,6 +177,8 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 - `consultar_proceso` — el template con fases, criterios y siguiente paso
 - `consultar_spec` — el contrato del ticket: qué debe cambiar, qué no debe tocarse, evidencia requerida
 
+**Multi-repositorio**: si el proyecto crece a varios microservicios en varios repos, el asistente no depende de un único `GITHUB_REPO` fijo para todo. `jira-branch.yml` deja un comentario con el link al repo (`github.com/<owner>/<repo>/tree/<rama>`) apenas se crea la rama de un ticket -- lo mismo que `release.yml` ya hacía al publicar el release. `resolver_repo(ticket)`, en `scripts/tools.py`, lee esos comentarios y detecta a qué repositorio pertenece cada ticket (con caché en memoria); `consultar_pipelines` lo usa automáticamente cuando se le pasa un `ticket`, y devuelve el repo resuelto en su campo `repositorio`, que el agente reenvía a `detalle_ejecucion` si hace falta. Si un ticket no tiene ningún comentario con link a GitHub (por ejemplo, si la rama se creó sin pasar por `jira-branch.yml`), cae de vuelta al `GITHUB_REPO` configurado por defecto -- el comportamiento de siempre, sin romper nada para instalaciones de un solo repo.
+
 **Interfaces disponibles:**
 
 | Archivo | Interfaz | Uso |

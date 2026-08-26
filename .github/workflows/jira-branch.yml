@@ -95,3 +95,22 @@ jobs:
             "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \
             -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}"
           echo "📋 $TICKET → '$TARGET_STATUS' (desarrollo iniciado con la rama ${{ github.ref_name }})"
+
+      - name: Comentar el repositorio en el ticket de Jira
+        # Deja un link a github.com/<owner>/<repo> en el propio ticket, igual que
+        # release.yml hace al publicar. Sirve para que el asistente (tools.py,
+        # resolver_repo) pueda saber a que repositorio pertenece este ticket sin
+        # depender de una unica variable GITHUB_REPO fija -- util cuando hay
+        # varios microservicios en varios repos.
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ steps.ticket.outputs.ticket }}
+          BRANCH_URL: ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}
+        run: |
+          curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/comment" \
+            -d "{\"body\": {\"type\": \"doc\", \"version\": 1, \"content\": [{\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"text\": \"Rama creada: $BRANCH_URL\"}]}]}}"
+          echo "📋 $TICKET comentado con el repositorio/rama"
