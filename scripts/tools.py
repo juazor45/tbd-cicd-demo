@@ -24,6 +24,7 @@ Sin dependencias externas salvo `anthropic` (que usa el agente, no este módulo)
 
 import logging
 import os
+import re
 
 from http_client import age, gh_headers, http_get, http_post, jira_headers
 
@@ -59,6 +60,69 @@ def consultar_jira(ticket):
     }
 
 
+# ----------------------------------------------------------------------
+# Resolucion de repositorio por ticket (soporte multi-repo)
+# ----------------------------------------------------------------------
+# GITHUB_REPO es una unica variable de entorno fija por instancia del bot --
+# si hay varios microservicios en varios repos, no hay forma de que ese valor
+# fijo apunte al repo correcto para cada ticket. En vez de eso, resolver_repo
+# busca en los propios comentarios del ticket de Jira un link a github.com:
+# jira-branch.yml ya deja uno al crear la rama, y release.yml deja otro al
+# publicar. Si lo encuentra, ese es el repo real del ticket -- si no, quien
+# llama cae de vuelta a GITHUB_REPO (comportamiento de siempre, single-repo).
+_REPO_CACHE = {}
+_REPO_URL_RE = re.compile(r"github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
+
+
+def _extraer_texto_adf(nodo):
+    """Extrae texto plano de un nodo/documento en Atlassian Document Format
+    (recursivo: parrafos, listas, etc. son 'content' anidado)."""
+    partes = []
+    if isinstance(nodo, dict):
+        if nodo.get("type") == "text":
+            partes.append(nodo.get("text", ""))
+        for hijo in nodo.get("content", []) or []:
+            partes.append(_extraer_texto_adf(hijo))
+    elif isinstance(nodo, list):
+        for hijo in nodo:
+            partes.append(_extraer_texto_adf(hijo))
+    return " ".join(p for p in partes if p)
+
+
+def resolver_repo(ticket):
+    """Busca a que repo de GitHub pertenece un ticket, leyendo sus comentarios
+    de Jira. Devuelve 'owner/repo' o None si no encontro ningun link. Cachea
+    en memoria por ticket (dentro del mismo proceso) para no releer los
+    comentarios en cada consulta."""
+    ticket = (ticket or "").upper().strip()
+    if not ticket:
+        return None
+    if ticket in _REPO_CACHE:
+        return _REPO_CACHE[ticket]
+
+    logger.info("resolver_repo(%s): buscando link a github.com en comentarios", ticket)
+    base = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+    code, data = http_get(
+        f"{base}/rest/api/3/issue/{ticket}/comment?orderBy=created&maxResults=100",
+        jira_headers(),
+    )
+    if code != 200:
+        logger.warning("resolver_repo(%s): no se pudieron leer comentarios (HTTP %s)", ticket, code)
+        return None
+
+    repo = None
+    for comentario in data.get("comments", []):
+        texto = _extraer_texto_adf(comentario.get("body"))
+        match = _REPO_URL_RE.search(texto)
+        if match:
+            repo = f"{match.group(1)}/{match.group(2)}"
+            break
+
+    logger.info("resolver_repo(%s): %s", ticket, repo or "sin link a github.com en los comentarios")
+    _REPO_CACHE[ticket] = repo
+    return repo
+
+
 def consultar_pipelines(rama=None, ticket=None):
     """Últimas ejecuciones de los workflows, opcionalmente filtradas por ticket o rama.
 
@@ -67,7 +131,7 @@ def consultar_pipelines(rama=None, ticket=None):
       - display_title: los workflows manuales llevan el ticket en su run-name
     """
     logger.info("tool consultar_pipelines(rama=%s, ticket=%s)", rama, ticket)
-    repo = os.environ.get("GITHUB_REPO", "")
+    repo = (ticket and resolver_repo(ticket)) or os.environ.get("GITHUB_REPO", "")
     code, data = http_get(
         f"https://api.github.com/repos/{repo}/actions/runs?per_page=100", gh_headers()
     )
@@ -110,10 +174,14 @@ def consultar_pipelines(rama=None, ticket=None):
     return resultado
 
 
-def detalle_ejecucion(run_id):
-    """Jobs y steps de una ejecución: identifica en qué step va, falló o espera aprobación."""
-    logger.info("tool detalle_ejecucion(run_id=%s)", run_id)
-    repo = os.environ.get("GITHUB_REPO", "")
+def detalle_ejecucion(run_id, repo=None):
+    """Jobs y steps de una ejecución: identifica en qué step va, falló o espera aprobación.
+
+    'repo' es opcional -- solo hace falta pasarlo cuando el run pertenece a un
+    repositorio distinto al del bot (ver el campo 'repositorio' que devuelve
+    consultar_pipelines). Sin 'repo', cae a GITHUB_REPO como siempre."""
+    logger.info("tool detalle_ejecucion(run_id=%s, repo=%s)", run_id, repo)
+    repo = repo or os.environ.get("GITHUB_REPO", "")
     code, data = http_get(
         f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/jobs", gh_headers()
     )
@@ -299,7 +367,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "consultar_pipelines",
-        "description": "Lista la última ejecución de cada pipeline del repositorio (Jira-Branch, CI-PR, CICD-DEV, CICD-CERT) con su estado, resultado, rama, título y run_id. Pasa 'ticket' para ver solo las ejecuciones de ese release; sin filtro devuelve las últimas del repositorio. Si el filtro por ticket no devuelve nada, vuelve a consultar sin filtro antes de concluir.",
+        "description": "Lista la última ejecución de cada pipeline (Jira-Branch, CI-PR, CICD-DEV, CICD-CERT) con su estado, resultado, rama, título, run_id y 'repositorio' (owner/repo real de donde salieron esas ejecuciones). Pasa 'ticket' para ver solo las ejecuciones de ese release Y para que resuelva automáticamente a qué repositorio pertenece (si hay varios microservicios en varios repos, cada ticket puede corresponder a uno distinto); sin ticket usa el repositorio por defecto del bot. Si el filtro por ticket no devuelve nada, vuelve a consultar sin filtro antes de concluir. Fijate en el campo 'repositorio' de la respuesta: si vas a llamar a detalle_ejecucion después, pasale ese mismo valor como 'repo'.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -314,7 +382,8 @@ TOOL_SCHEMAS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "run_id": {"type": "integer", "description": "ID del run de GitHub Actions"}
+                "run_id": {"type": "integer", "description": "ID del run de GitHub Actions"},
+                "repo": {"type": "string", "description": "Opcional, formato 'owner/repo'. Pasa el mismo valor que trajo el campo 'repositorio' de consultar_pipelines si hay varios repos -- sin esto asume el repositorio por defecto del bot."}
             },
             "required": ["run_id"],
         },
