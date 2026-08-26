@@ -36,7 +36,16 @@ jobs:
           python-version: "3.11"
 
       - name: Setup Azure Functions Core Tools
-        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+        run: |
+          # El paquete de npm quedó poco confiable en runners de GitHub
+          # (401 intermitentes) -- Microsoft recomienda instalar via APT
+          # en Linux. Usamos $(lsb_release -cs) para que se adapte solo
+          # a la versión de Ubuntu del runner.
+          curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+          sudo mv microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg
+          sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-$(lsb_release -cs)-prod $(lsb_release -cs) main" > /etc/apt/sources.list.d/dotnetdev.list'
+          sudo apt-get update
+          sudo apt-get install -y azure-functions-core-tools-4
 
       - name: Azure Login (OIDC, sin secretos)
         uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
