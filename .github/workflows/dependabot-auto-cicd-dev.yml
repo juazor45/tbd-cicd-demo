@@ -40,7 +40,6 @@ jobs:
           gh workflow run cicd-dev.yml \
             --repo "${{ github.repository }}" \
             --ref "$RAMA" \
-            -f version=1.0.0-SNAPSHOT \
             -f component=ms-exchange-rate \
             -f run_cd=true
           echo "✅ CICD-DEV disparado. El check 'validado-en-dev' se publicara sobre el commit de este PR al terminar."

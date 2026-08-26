@@ -1,0 +1,49 @@
+name: Azure - Apagar
+run-name: Azure Apagar · ${{ inputs.entorno }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      entorno:
+        description: 'Qué Container App apagar'
+        required: true
+        type: choice
+        options:
+          - dev
+          - cert
+          - ambas
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apagar:
+    name: Forzar 0 réplicas (costo garantizado en $0)
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.entorno == 'cert' && 'cert' || 'dev' }}
+    timeout-minutes: 10
+    steps:
+      - name: Azure Login (OIDC, sin secretos)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Apagar Container App(s)
+        run: |
+          az extension add --name containerapp --upgrade -y >/dev/null 2>&1
+          apagar_app () {
+            local NOMBRE="$1"
+            echo "🔻 Apagando $NOMBRE (max-replicas 0)..."
+            az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$NOMBRE" \
+              --min-replicas 0 --max-replicas 0
+            echo "✅ $NOMBRE apagada. Mientras esté así, su costo es $0."
+          }
+          if [ "${{ inputs.entorno }}" = "dev" ] || [ "${{ inputs.entorno }}" = "ambas" ]; then
+            apagar_app "${{ vars.AZURE_APP_DEV }}"
+          fi
+          if [ "${{ inputs.entorno }}" = "cert" ] || [ "${{ inputs.entorno }}" = "ambas" ]; then
+            apagar_app "${{ vars.AZURE_APP_CERT }}"
+          fi

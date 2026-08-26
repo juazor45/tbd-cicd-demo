@@ -25,9 +25,6 @@ on:
 
 env:
   ENVIRONMENT: dev
-  REGISTRY: registry.demo.local/dev
-  K8S_CLUSTER: aks-dev-cluster
-  K8S_NAMESPACE: ns-dev
 
 permissions:
   contents: read
@@ -137,12 +134,16 @@ jobs:
   # CD - Despliegue Continuo
   # =========================================================
   cd:
-    name: CD → DEV
+    name: CD → DEV (Azure Container Apps)
     runs-on: ubuntu-latest
     needs: ci
     if: ${{ github.event.inputs.run_cd == 'true' }}
     environment: dev
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -152,40 +153,47 @@ jobs:
           echo "🔧 Preparando despliegue..."
           echo "Artefacto  : ${{ needs.ci.outputs.artifact_id }}"
           echo "Versión    : ${{ needs.ci.outputs.version }}"
-          echo "Registry   : $REGISTRY"
-          echo "Cluster    : $K8S_CLUSTER / Namespace: $K8S_NAMESPACE"
+          echo "Container App : ${{ vars.AZURE_APP_DEV }}"
 
-      - name: Build and Push Registry
+      - name: Build and Push a GHCR
         run: |
-          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ needs.ci.outputs.version }}"
-          docker build -t "$IMAGE" .
-          echo "🐳 [MOCK] docker push $IMAGE (registry no existe en la demo)"
-          echo "✅ Imagen construida: $IMAGE"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE="ghcr.io/${{ github.repository }}/${{ github.event.inputs.component }}"
+          docker build -t "$IMAGE:${{ needs.ci.outputs.version }}" .
+          docker push "$IMAGE:${{ needs.ci.outputs.version }}"
+          echo "🐳 Imagen publicada: $IMAGE:${{ needs.ci.outputs.version }}"
 
-      - name: Set Runners
-        run: |
-          echo "🏃 [MOCK] Runner group: rg-k8s-dev | Labels: [self-hosted, dev, k8s]"
-          echo "✅ Runners configurados"
+      - name: Azure Login (OIDC, sin secretos)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy to Kubernetes Cluster
+      - name: Deploy a Azure Container Apps
         run: |
-          IMAGE="$REGISTRY/${{ github.event.inputs.component }}:${{ needs.ci.outputs.version }}"
-          echo "🚀 [MOCK] helm upgrade --install ... (cluster no existe en la demo)"
-          echo "🚀 Simulando el despliegue levantando el contenedor en el runner..."
-          docker run -d --name ms-demo -p 8080:8080 "$IMAGE"
+          az extension add --name containerapp --upgrade -y >/dev/null 2>&1
+          az containerapp update \
+            -g "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            -n "${{ vars.AZURE_APP_DEV }}" \
+            --image "ghcr.io/${{ github.repository }}/${{ github.event.inputs.component }}:${{ needs.ci.outputs.version }}" \
+            --target-port 8080 \
+            --min-replicas 0 --max-replicas 1
+          echo "🚀 Desplegado en Azure Container Apps (dev)"
 
       - name: Smoke Test (verificación post-deploy)
         run: |
-          echo "⏳ Esperando readiness..."
+          APP_URL="https://$(az containerapp show -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.AZURE_APP_DEV }}" --query properties.configuration.ingress.fqdn -o tsv)"
+          echo "⏳ Esperando readiness en $APP_URL (puede tardar por el arranque desde 0 réplicas)..."
           for i in $(seq 1 30); do
-            curl -sf localhost:8080/q/health/ready && break
-            sleep 2
+            curl -sf "$APP_URL/q/health/ready" && break
+            sleep 5
           done
           echo ""
           echo "🧪 Probando endpoints:"
-          curl -sf localhost:8080/api/v1/exchange-rates; echo ""
-          curl -sf "localhost:8080/api/v1/exchange-rates/USD/convert?amount=100"; echo ""
-          echo "✅ Servicio desplegado y respondiendo en DEV"
+          curl -sf "$APP_URL/api/v1/exchange-rates"; echo ""
+          curl -sf "$APP_URL/api/v1/exchange-rates/USD/convert?amount=100"; echo ""
+          echo "✅ Servicio desplegado y respondiendo en DEV: $APP_URL"
 
   # =========================================================
   # Marca el commit como validado en DEV.
