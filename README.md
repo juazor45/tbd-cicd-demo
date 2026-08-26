@@ -2,6 +2,8 @@
 
 Laboratorio funcional de un proceso de entrega de software completo: **Trunk-Based Development**, pipelines CI/CD con gestión de cambios automatizada contra Jira, y un **asistente de IA** que responde en lenguaje natural en qué punto está cada release.
 
+> ¿Instalando esto desde cero? Andá directo a **[INSTALL.md](INSTALL.md)** -- walkthrough completo, en orden, con todos los problemas reales que aparecen en el camino ya resueltos.
+
 ---
 
 ## Qué contiene
@@ -391,13 +393,17 @@ Cargá como **Variables** del repo (no Secrets):
 |---|---|
 | `AZURE_FUNCTIONAPP_NAME` | `func-tbd-teamsbot-1234567890` |
 | `JIRA_PROJECT_KEY` | `SCRUM` |
-| `TEAMS_TICKET_CHANNEL_ID` | `19:xxxxxxxx@thread.tacv2` (desde Teams: los 3 puntos del canal → *Obtener vínculo al canal*) |
+| `TEAMS_TICKET_CHANNEL_ID` | `19:xxxxxxxx@thread.tacv2` (canal) o `a:1J_oK...` (chat 1:1 con el bot) |
+
+Para un **canal** de equipo, el ID sale desde Teams: los 3 puntos del canal → *Obtener vínculo al canal*. Para un **chat 1:1** con el bot (caso común si todavía no tenés un canal donde habilitar "Cargar app personalizada") no existe ese menú -- la forma más simple es dejar la variable como esté, escribirle algo al bot desde ese chat, y copiar el ID real que el propio bot devuelve en su mensaje de rechazo ("El ID de esta conversación es: `...`"). Pegás ese valor como `TEAMS_TICKET_CHANNEL_ID` y volvés a correr **Teams Bot - Deploy** -- cambiar la Variable en GitHub no alcanza por sí solo, solo ese workflow la empuja a la Function App (`az functionapp config appsettings set`).
 
 ### Desplegar el código del bot
 
 **Actions → Teams Bot - Deploy → Run workflow.** El workflow sincroniza `tools.py`/`http_client.py`/`process-template.yml`/`specs/` dentro de `scripts/teams_bot/` (para que el paquete de Functions quede autocontenido), configura `ANTHROPIC_API_KEY`/`JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` en la Function App reutilizando los mismos Secrets que ya usa `spec-review.yml`/`cicd-cert.yml` (no hace falta cargarlos de nuevo), y publica con `func azure functionapp publish`.
 
 ### Instalar la app en Teams
+
+> ⚠️ **Requiere un tenant de "Teams para el trabajo o la escuela" (Microsoft 365/Entra ID), no Teams personal/gratuito.** El canal de Teams de Azure Bot Service no funciona contra `teams.live.com` (cuentas personales). Si no tenés ya un tenant de este tipo, la vía más simple sin depender de aprobación de una organización existente es la prueba gratuita de 30 días de **Microsoft 365 Business Standard** (crea un tenant `*.onmicrosoft.com` nuevo, $0 el primer mes, se autorenueva salvo que la canceles antes de que termine la prueba -- poné un recordatorio). El **Microsoft 365 Developer Program** es gratis de forma indefinida pero tiene criterios de elegibilidad que Microsoft aplica caso por caso y pueden rechazar la solicitud.
 
 `scripts/teams_bot/teams-app-manifest/` tiene el manifest y los íconos. Antes de empaquetar, reemplazá `REEMPLAZAR_CON_MicrosoftAppId` en `manifest.json` (dos apariciones) por el `MicrosoftAppId` que imprimió `setup-azure-teams-bot.sh`. Después:
 
@@ -406,7 +412,9 @@ cd scripts/teams_bot/teams-app-manifest
 zip deploygo-assistant.zip manifest.json color.png outline.png
 ```
 
-En Teams: **Apps → Administrar tus apps → Cargar una app personalizada** (o *Cargar para mi equipo/organización* si tenés permisos de admin), y seleccioná el `.zip`. Agregala al canal que configuraste como `TEAMS_TICKET_CHANNEL_ID` para que `/crear-ticket` funcione ahí.
+En Teams: **Apps → Administrar tus apps → Cargar una app personalizada** (o *Cargar para mi equipo/organización* si tenés permisos de admin), y seleccioná el `.zip`. Agregala al canal o chat que configuraste como `TEAMS_TICKET_CHANNEL_ID` para que `/crear-ticket` funcione ahí.
+
+Si aparece **"No se encuentra esta aplicación"** al subir el `.zip`, es porque la política de tenant "Cargar aplicaciones personalizadas" está desactivada por defecto: **Centro de administración de Teams** (`admin.teams.microsoft.com`) → *Aplicaciones de Teams* → *Políticas de configuración* → `Global` → habilitar *Cargar aplicaciones personalizadas*.
 
 ---
 
@@ -450,10 +458,19 @@ En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Requ
 ```
 .
 ├── .github/workflows/     jira-branch · ci-pr · cicd-dev · cicd-cert · release · dashboard · consulta-estado
+│                          azure-apagar · azure-encender · teams-bot-deploy
 ├── src/                   microservicio Quarkus (main y test)
 ├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
-├── scripts/               asistente: tools · slack_bot · assistant · dashboard · process-template · version
+├── scripts/
+│   ├── tools.py / http_client.py / process-template.yml / version.py / dashboard.py
+│   ├── assistant.py       interfaz de terminal
+│   ├── slack_bot.py       bot de Slack (legado, funcional)
+│   ├── teams_bot/         bot de Microsoft Teams (Azure Functions): bot · agent · cards · config · function_app
+│   ├── setup-repo.sh      protecciones de rama/tags, environments
+│   ├── setup-azure.sh     provisiona Azure Container Apps + OIDC
+│   └── setup-azure-teams-bot.sh   provisiona Function App + Azure Bot + Managed Identity
 ├── docs/                  estrategia de ramas + dashboard.md/dashboard.html (generados)
+├── INSTALL.md             guía paso a paso, desde cero, hasta un ambiente funcionando
 ├── pom.xml
 └── Dockerfile
 ```
