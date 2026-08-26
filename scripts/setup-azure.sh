@@ -124,6 +124,24 @@ az role assignment create \
   --scope "/subscriptions/$SUB_ID/resourceGroups/$RG" >/dev/null 2>&1 || \
   echo "    (el permiso ya existía)"
 
+# Desde julio 2026 GitHub manda por defecto un subject "inmutable" que incluye
+# el ID del owner y del repo (no solo el nombre), para blindar contra
+# reutilización de nombres si se renombra/transfiere el repo. Lo detectamos
+# acá para armar el subject correcto sin que haga falta tocar nada a mano.
+echo "==> Detectando formato de subject OIDC (owner/repo IDs)..."
+OWNER_ID="$(curl -s "https://api.github.com/users/$OWNER" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)"
+REPO_ID="$(curl -s "https://api.github.com/repos/$REPO_FULL" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)"
+if [ -n "$OWNER_ID" ] && [ -n "$REPO_ID" ]; then
+  SUBJECT_OWNER_REPO="${OWNER}@${OWNER_ID}/${REPO}@${REPO_ID}"
+  echo "    usando subject inmutable: repo:${SUBJECT_OWNER_REPO}:..."
+else
+  SUBJECT_OWNER_REPO="${REPO_FULL}"
+  echo "    ⚠️  no pude resolver los IDs vía api.github.com -- uso el formato clásico (repo:${REPO_FULL}:...)."
+  echo "        Si tu repo ya usa subjects inmutables, esto va a fallar en el login; volvé a correr el script."
+fi
+
+# Siempre borra-y-crea (en vez de "si existe, no tocar") para que re-correr
+# el script también sirva para corregir un subject desactualizado.
 crear_federated_credential () {
   local NOMBRE="$1"
   local SUBJECT="$2"
@@ -137,19 +155,16 @@ crear_federated_credential () {
   "audiences": ["api://AzureADTokenExchange"]
 }
 EOF
-  if az ad app federated-credential show --id "$APP_ID" --federated-credential-id "$NOMBRE" >/dev/null 2>&1; then
-    echo "    credential '$NOMBRE' ya existe."
-  else
-    az ad app federated-credential create --id "$APP_ID" --parameters "$TMP_JSON" >/dev/null
-    echo "    credential '$NOMBRE' creada (subject: $SUBJECT)"
-  fi
+  az ad app federated-credential delete --id "$APP_ID" --federated-credential-id "$NOMBRE" >/dev/null 2>&1 || true
+  az ad app federated-credential create --id "$APP_ID" --parameters "$TMP_JSON" >/dev/null
+  echo "    credential '$NOMBRE' -> subject: $SUBJECT"
   rm -f "$TMP_JSON"
 }
 
 echo "==> Federated credentials (para que GitHub Actions se loguee sin secretos)..."
-crear_federated_credential "gh-env-dev"  "repo:${REPO_FULL}:environment:dev"
-crear_federated_credential "gh-env-cert" "repo:${REPO_FULL}:environment:cert"
-crear_federated_credential "gh-main"     "repo:${REPO_FULL}:ref:refs/heads/main"
+crear_federated_credential "gh-env-dev"  "repo:${SUBJECT_OWNER_REPO}:environment:dev"
+crear_federated_credential "gh-env-cert" "repo:${SUBJECT_OWNER_REPO}:environment:cert"
+crear_federated_credential "gh-main"     "repo:${SUBJECT_OWNER_REPO}:ref:refs/heads/main"
 
 echo ""
 echo "=================================================================="
