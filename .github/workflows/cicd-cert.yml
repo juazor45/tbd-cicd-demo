@@ -208,8 +208,11 @@ jobs:
             -g "${{ vars.AZURE_RESOURCE_GROUP }}" \
             -n "${{ vars.AZURE_APP_CERT }}" \
             --image "ghcr.io/${{ github.repository }}/${{ github.event.inputs.component }}:${{ needs.ci.outputs.version }}" \
-            --target-port 8080 \
             --min-replicas 0 --max-replicas 1
+          az containerapp ingress update \
+            -g "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            -n "${{ vars.AZURE_APP_CERT }}" \
+            --target-port 8080
           echo "🚀 Desplegado en Azure Container Apps (cert)"
 
       - name: Smoke Test (verificación post-deploy)
