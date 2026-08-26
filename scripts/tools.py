@@ -141,11 +141,22 @@ def detalle_ejecucion(run_id):
     return {"run_id": run_id, "punto_actual": punto or "Ejecución finalizada sin pendientes", "jobs": jobs}
 
 
+# SPECS_DIR permite sobreescribir dónde vive specs/, relativo a este archivo.
+# Por defecto asume que tools.py vive directo en scripts/ (repo original) y
+# specs/ es su hermano a nivel de repo: "../specs". El bot de Teams
+# (scripts/teams_bot/) corre una copia de tools.py un nivel más adentro, así
+# que su workflow de deploy copia specs/ junto a esa copia y define
+# SPECS_DIR=specs para que la ruta relativa siga siendo correcta sin tocar
+# esta lógica.
+_SPECS_DIR_OVERRIDE = os.environ.get("SPECS_DIR")
+
+
 def consultar_spec(ticket):
     """Lee el spec declarado del ticket: que debe cambiar, que no debe tocar, contrato y evidencia requerida."""
     logger.info("tool consultar_spec(ticket=%s)", ticket)
+    sub = _SPECS_DIR_OVERRIDE or os.path.join("..", "specs")
     spec_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "specs", f"{ticket.upper()}.yml"
+        os.path.dirname(os.path.abspath(__file__)), sub, f"{ticket.upper()}.yml"
     )
     try:
         contenido = open(spec_path, encoding="utf-8").read()

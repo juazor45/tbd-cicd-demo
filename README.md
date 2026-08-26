@@ -179,7 +179,8 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 
 | Archivo | Interfaz | Uso |
 |---|---|---|
-| `scripts/slack_bot.py` | Slack (Socket Mode) | `/release SCRUM-11` o `@DeployGo ¿por qué falló?` |
+| `scripts/teams_bot/` | **Microsoft Teams** (Bot Framework, Azure Functions) | `/crear-ticket` o preguntarle directo: `¿en qué va SCRUM-11?` -- ver [sección 8](#8-bot-de-microsoft-teams-azure-bot-service--functions) |
+| `scripts/slack_bot.py` | Slack (Socket Mode) -- legado, se mantiene funcional | `/release SCRUM-11` o `@DeployGo ¿por qué falló?` |
 | `scripts/assistant.py` | Terminal | `python assistant.py "¿en qué va SCRUM-11?"` |
 | `.github/workflows/consulta-estado.yml` | GitHub Actions | Run workflow → reporte en el Summary |
 | `docs/dashboard.md` | Vista persistente (Markdown) | Se abre directo en GitHub |
@@ -187,9 +188,9 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 
 El conocimiento del proceso vive en `scripts/process-template.yml`, un archivo editable. **Cuando el proceso cambia, se edita ese archivo — no el código.**
 
-### Crear tickets desde Slack: `/crear-ticket`
+### Crear tickets: `/crear-ticket` (Teams y Slack)
 
-A diferencia de las tools de arriba, `crear_ticket`, `comentar_ticket` y `listar_tipos_issue` (en `scripts/tools.py`) **no** están expuestas al agente conversacional — crear datos en Jira es una acción con efectos reales, no una consulta, así que no queda a un paso de una frase mal interpretada por el modelo. En su lugar, `/crear-ticket` en Slack abre un formulario (modal) con campos fijos: tipo, título y descripción. El proyecto de Jira es fijo (`JIRA_PROJECT_KEY`), no editable desde el formulario, y el selector de *tipo* se llena con los tipos de issue reales del proyecto (`listar_tipos_issue`, consultados una vez y cacheados en memoria) — no una lista fija, porque varían por esquema de proyecto e idioma (un proyecto puede no tener "Task", o llamarlo "Tarea").
+A diferencia de las tools de arriba, `crear_ticket`, `comentar_ticket` y `listar_tipos_issue` (en `scripts/tools.py`) **no** están expuestas al agente conversacional — crear datos en Jira es una acción con efectos reales, no una consulta, así que no queda a un paso de una frase mal interpretada por el modelo. En su lugar, `/crear-ticket` abre un formulario con campos fijos (tipo, título y descripción) -- una Adaptive Card en Teams, un modal en Slack. El proyecto de Jira es fijo (`JIRA_PROJECT_KEY`), no editable desde el formulario, y el selector de *tipo* se llena con los tipos de issue reales del proyecto (`listar_tipos_issue`, consultados una vez y cacheados en memoria) — no una lista fija, porque varían por esquema de proyecto e idioma (un proyecto puede no tener "Task", o llamarlo "Tarea").
 
 Controles antes de que algo llegue a Jira:
 
@@ -351,6 +352,61 @@ Aunque Container Apps ya escala a 0 sola cuando no hay tráfico, para tener cont
 - **Azure - Encender** (`azure-encender.yml`): vuelve a `max-replicas 1` (sigue escalando a 0 sola cuando no hay tráfico; esto solo restaura la posibilidad de que arranque).
 
 Ambos corren desde **Actions → (el workflow) → Run workflow**, eligiendo `dev`, `cert` o `ambas`.
+
+---
+
+## 8. Bot de Microsoft Teams (Azure Bot Service + Functions)
+
+El asistente conversacional y `/crear-ticket` corren también en Microsoft Teams, con la misma lógica de negocio que el bot de Slack (mismas 5 tools, mismos controles de seguridad de `/crear-ticket`, mismo rate limiting) -- lo único que cambia es la capa de transporte: Socket Mode (conexión saliente) se reemplaza por un webhook HTTP, y los modales de Block Kit se reemplazan por Adaptive Cards.
+
+### Arquitectura
+
+```
+Teams ──▶ Azure Bot Service (F0, gratis) ──▶ Azure Function App (Consumption)
+                                                     │
+                                                     ├─ agent.py   (mismo loop que Slack, tools.py sin tocar)
+                                                     ├─ bot.py     (Adaptive Cards en vez de Block Kit)
+                                                     └─ tools.py / http_client.py / specs/ (copias sincronizadas en el deploy)
+```
+
+Autenticación sin secretos: el bot usa una **User-Assigned Managed Identity** (no un client secret) para autenticarse contra Bot Framework -- mismo principio que el OIDC de los pipelines de CI/CD.
+
+**Costo esperado**: $0/mes para uso de laboratorio. Azure Bot Service tier F0 es gratis, y Azure Functions Consumption tiene 1 millón de ejecuciones gratis por mes (muy por encima de lo que un bot de equipo genera).
+
+**Estado en memoria**: igual que el bot de Slack, el historial de conversación, el rate limiting y los borradores de `/crear-ticket` viven solo en memoria del proceso -- no hay base de datos. En Azure Functions Consumption esto puede notarse un poco más que en Slack, porque la instancia puede reciclarse cuando no hay actividad (lo cual también es lo que mantiene el costo en $0). Si en algún momento esto molesta, migrar ese estado a Azure Table Storage es un cambio acotado.
+
+### Provisionar (una sola vez, en Azure Cloud Shell)
+
+Requiere haber corrido antes `scripts/setup-azure.sh` (usa el mismo resource group):
+
+```bash
+./scripts/setup-azure-teams-bot.sh juazor45/tbd-cicd-demo
+```
+
+Crea: el Storage Account que exige el runtime de Functions, la Managed Identity, la Function App (Python 3.11, Consumption), el recurso de Azure Bot (tier F0) y habilita el canal de Teams. Al final imprime `AZURE_FUNCTIONAPP_NAME`, el `MicrosoftAppId` (client id de la Managed Identity) y el messaging endpoint -- ninguno es secreto.
+
+Cargá como **Variables** del repo (no Secrets):
+
+| Variable | Ejemplo |
+|---|---|
+| `AZURE_FUNCTIONAPP_NAME` | `func-tbd-teamsbot-1234567890` |
+| `JIRA_PROJECT_KEY` | `SCRUM` |
+| `TEAMS_TICKET_CHANNEL_ID` | `19:xxxxxxxx@thread.tacv2` (desde Teams: los 3 puntos del canal → *Obtener vínculo al canal*) |
+
+### Desplegar el código del bot
+
+**Actions → Teams Bot - Deploy → Run workflow.** El workflow sincroniza `tools.py`/`http_client.py`/`process-template.yml`/`specs/` dentro de `scripts/teams_bot/` (para que el paquete de Functions quede autocontenido), configura `ANTHROPIC_API_KEY`/`JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` en la Function App reutilizando los mismos Secrets que ya usa `spec-review.yml`/`cicd-cert.yml` (no hace falta cargarlos de nuevo), y publica con `func azure functionapp publish`.
+
+### Instalar la app en Teams
+
+`scripts/teams_bot/teams-app-manifest/` tiene el manifest y los íconos. Antes de empaquetar, reemplazá `REEMPLAZAR_CON_MicrosoftAppId` en `manifest.json` (dos apariciones) por el `MicrosoftAppId` que imprimió `setup-azure-teams-bot.sh`. Después:
+
+```bash
+cd scripts/teams_bot/teams-app-manifest
+zip deploygo-assistant.zip manifest.json color.png outline.png
+```
+
+En Teams: **Apps → Administrar tus apps → Cargar una app personalizada** (o *Cargar para mi equipo/organización* si tenés permisos de admin), y seleccioná el `.zip`. Agregala al canal que configuraste como `TEAMS_TICKET_CHANNEL_ID` para que `/crear-ticket` funcione ahí.
 
 ---
 
