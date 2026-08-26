@@ -1,0 +1,50 @@
+name: Azure - Encender
+run-name: Azure Encender · ${{ inputs.entorno }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      entorno:
+        description: 'Qué Container App encender'
+        required: true
+        type: choice
+        options:
+          - dev
+          - cert
+          - ambas
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  encender:
+    name: Permitir de nuevo hasta 1 réplica
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.entorno == 'cert' && 'cert' || 'dev' }}
+    timeout-minutes: 10
+    steps:
+      - name: Azure Login (OIDC, sin secretos)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Encender Container App(s)
+        run: |
+          az extension add --name containerapp --upgrade -y >/dev/null 2>&1
+          encender_app () {
+            local NOMBRE="$1"
+            echo "🔺 Encendiendo $NOMBRE (max-replicas 1, escala a 0 sola si no hay tráfico)..."
+            az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$NOMBRE" \
+              --min-replicas 0 --max-replicas 1
+            APP_URL="https://$(az containerapp show -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$NOMBRE" --query properties.configuration.ingress.fqdn -o tsv)"
+            echo "✅ $NOMBRE encendida: $APP_URL"
+          }
+          if [ "${{ inputs.entorno }}" = "dev" ] || [ "${{ inputs.entorno }}" = "ambas" ]; then
+            encender_app "${{ vars.AZURE_APP_DEV }}"
+          fi
+          if [ "${{ inputs.entorno }}" = "cert" ] || [ "${{ inputs.entorno }}" = "ambas" ]; then
+            encender_app "${{ vars.AZURE_APP_CERT }}"
+          fi

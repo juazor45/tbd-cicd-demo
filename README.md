@@ -114,15 +114,16 @@ docker build -t ms-exchange-rate:local .
 |---|---|---|
 | `jira-branch.yml` | Al crear una rama | Extrae la key del nombre, verifica el ticket en Jira y lo mueve a **Construcción Doing** |
 | `ci-pr.yml` | En cada PR hacia `main` | `mvn verify` real — es el check obligatorio del ruleset |
-| `cicd-dev.yml` | Manual, desde cualquier rama | CI completo + deploy a dev con smoke test → **Construcción Done**. Al terminar, marca el commit con el status `validado-en-dev` |
-| `cicd-cert.yml` | Manual, **solo desde `main`** | Valida origen y ticket, CI con policies estrictas, aprobación manual y deploy → **Congelamiento** y **QA Testing Doing** |
+| `cicd-dev.yml` | Manual, desde cualquier rama | CI completo + deploy real a **Azure Container Apps** (dev) con smoke test → **Construcción Done**. Al terminar, marca el commit con el status `validado-en-dev` |
+| `cicd-cert.yml` | Manual, **solo desde `main`** | Valida origen y ticket, CI con policies estrictas, aprobación manual y deploy real a **Azure Container Apps** (cert) → **Congelamiento** y **QA Testing Doing** |
 | `release.yml` | Manual, tras QA Testing Done | Valida el estado del ticket, taggea `vX.Y.Z` y publica el GitHub Release — ver [sección 6](#6-versionado-semver--tags-de-git) |
+| `azure-apagar.yml` / `azure-encender.yml` | Manual | Fuerza a 0 o restaura a 1 las réplicas máximas de la Container App (dev/cert/ambas) — ver [sección 7](#7-infraestructura-en-azure-container-apps) |
 
 **Etapas de CI**: Prepare → Get Secrets (Vault) → Build & Tests (Maven) → SonarQube → Fortify → Publish Artifact → Component Test → SCA Xray
 
-**Etapas de CD**: Prepare → Build & Push Registry → Set Runners → Deploy to Kubernetes → Smoke Test
+**Etapas de CD**: Prepare → Build & Push a GHCR → Azure Login (OIDC) → Deploy a Azure Container Apps → Smoke Test
 
-> Los análisis de seguridad/calidad y el despliegue a Kubernetes están **simulados**. El build de Maven, la construcción de la imagen Docker y el smoke test son reales.
+> Los análisis de seguridad/calidad (SonarQube, Fortify, SCA) siguen **simulados**. El build de Maven, la imagen Docker, el push al registry, el despliegue en Azure y el smoke test son **reales**.
 
 Los workflows manuales llevan el ticket en el título del run (`run-name`), lo que permite correlacionar cada ejecución con su release.
 
@@ -289,6 +290,67 @@ Si tu plan de Jira soporta *secrets* dentro de Automatización, guarda el token 
 ### Configuración adicional
 
 `scripts/setup-repo.sh` ahora también protege el patrón de tags `v*` (`Settings → Tags → Tag protection rules`) para que un release publicado no se pueda borrar ni sobreescribir por error. El workflow `release.yml` empuja el tag con el `GITHUB_TOKEN` por defecto — a diferencia de `dashboard.yml`, esto no choca con el ruleset de `main` porque un tag no es una rama, así que no hace falta el PAT `DASHBOARD_BOT_TOKEN` para esto.
+
+---
+
+## 7. Infraestructura en Azure (Container Apps)
+
+El microservicio se despliega en **Azure Container Apps (plan Consumption)**, no en un clúster de Kubernetes simulado. Se eligió sobre las otras opciones de Azure por una razón concreta de costo:
+
+| Opción | Por qué se descartó / eligió |
+|---|---|
+| Azure App Service (B1) | Un app **detenido** en un tier de pago sigue facturando igual — hay que borrarlo o bajarlo a Free para no pagar. No sirve para "apagar y prender" |
+| Azure Container Instances (ACI) | Cobra por segundo desde el primer segundo, **sin cupo gratis mensual**. Si te olvidás de apagarlo, sigue sumando costo real |
+| **Azure Container Apps (Consumption)** ✅ | Tiene cupo gratis mensual (180.000 vCPU-seg + 360.000 GiB-seg + 2M requests) y **escala a 0 réplicas sola** cuando no hay tráfico — ahí no cobra nada, sin que nadie tenga que acordarse de apagarla |
+
+Para un laboratorio de tráfico bajo, el costo esperado es **$0/mes**, cubierto por el cupo gratis.
+
+### Arquitectura
+
+Dos Container Apps (`ms-exchange-rate-dev` y `ms-exchange-rate-cert`) dentro de un mismo `Container Apps Environment`, cada una alimentada por su propio pipeline (`cicd-dev.yml` / `cicd-cert.yml`). La imagen se construye y se publica en **GHCR** (GitHub Container Registry, gratis) en cada deploy, y GitHub Actions se autentica contra Azure con **OIDC (federated credentials)** — sin ningún secret de Azure guardado en el repo.
+
+```
+GitHub Actions ──(OIDC, sin secretos)──▶ Azure (az containerapp update)
+      │
+      └─(docker push)──▶ ghcr.io/juazor45/tbd-cicd-demo/ms-exchange-rate
+                                │
+                                ▼
+                    Azure Container Apps pull la imagen
+```
+
+### Provisionar la infraestructura (una sola vez, o para otra laptop/suscripción)
+
+`scripts/setup-azure.sh` crea todo: resource group, Log Analytics, el Container Apps Environment, las dos Container Apps (arrancan con una imagen placeholder hasta el primer deploy real), la App Registration de Azure AD y sus *federated credentials* para que GitHub Actions pueda loguearse sin secretos.
+
+Corre en **[Azure Cloud Shell](https://shell.azure.com)** (ya autenticado, no requiere instalar nada):
+
+```bash
+git clone https://github.com/juazor45/tbd-cicd-demo.git
+cd tbd-cicd-demo
+./scripts/setup-azure.sh juazor45/tbd-cicd-demo
+```
+
+Al final imprime unos valores para cargar como **Variables** del repositorio (**Settings → Secrets and variables → Actions → Variables**, no Secrets — no son sensibles, son identificadores):
+
+| Variable | Ejemplo | Para qué |
+|---|---|---|
+| `AZURE_CLIENT_ID` | `00000000-...` | Identidad de la App Registration usada para el login OIDC |
+| `AZURE_TENANT_ID` | `00000000-...` | Tenant de Azure AD |
+| `AZURE_SUBSCRIPTION_ID` | `00000000-...` | Suscripción donde vive todo |
+| `AZURE_RESOURCE_GROUP` | `rg-tbd-cicd-demo` | Resource group creado por el script |
+| `AZURE_APP_DEV` | `ms-exchange-rate-dev` | Container App del entorno dev |
+| `AZURE_APP_CERT` | `ms-exchange-rate-cert` | Container App del entorno cert |
+
+**Paso manual único después del primer deploy real**: GHCR crea el paquete de la imagen como privado por defecto. Como Azure Container Apps necesita poder *pull*earla y no queremos guardar un token de larga duración solo para eso, hay que marcar el paquete como público una vez: en GitHub, pestaña **Packages** del repo → `ms-exchange-rate` → **Package settings** → **Change visibility** → **Public**. El código del microservicio no tiene nada sensible, así que esto no expone información.
+
+### Apagar y encender para ahorrar
+
+Aunque Container Apps ya escala a 0 sola cuando no hay tráfico, para tener control explícito (por ejemplo, garantizar $0 durante toda una noche o entre clases) están los workflows:
+
+- **Azure - Apagar** (`azure-apagar.yml`): fuerza `max-replicas 0` — la Container App queda inalcanzable y su costo pasa a $0 garantizado.
+- **Azure - Encender** (`azure-encender.yml`): vuelve a `max-replicas 1` (sigue escalando a 0 sola cuando no hay tráfico; esto solo restaura la posibilidad de que arranque).
+
+Ambos corren desde **Actions → (el workflow) → Run workflow**, eligiendo `dev`, `cert` o `ambas`.
 
 ---
 
