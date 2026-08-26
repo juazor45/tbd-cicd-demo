@@ -3,7 +3,6 @@
   "manifestVersion": "1.19",
   "version": "1.0.0",
   "id": "REEMPLAZAR_CON_MicrosoftAppId",
-  "packageName": "com.tbdcicddemo.deploygoassistant",
   "developer": {
     "name": "tbd-cicd-demo",
     "websiteUrl": "https://github.com/juazor45/tbd-cicd-demo",
@@ -26,12 +25,18 @@
   "bots": [
     {
       "botId": "REEMPLAZAR_CON_MicrosoftAppId",
-      "scopes": ["team", "personal"],
+      "scopes": [
+        "team",
+        "personal"
+      ],
       "supportsFiles": false,
       "isNotificationOnly": false,
       "commandLists": [
         {
-          "scopes": ["team", "personal"],
+          "scopes": [
+            "team",
+            "personal"
+          ],
           "commands": [
             {
               "title": "crear-ticket",
@@ -46,6 +51,9 @@
       ]
     }
   ],
-  "permissions": ["identity", "messageTeamMembers"],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
   "validDomains": []
 }
