@@ -123,8 +123,13 @@ class DeployGoBot(ActivityHandler):
                 "⚠️ Este comando no está configurado todavía (faltan TEAMS_TICKET_CHANNEL_ID / JIRA_PROJECT_KEY)."
             )
             return
-        if _channel_id(turn_context) != TEAMS_TICKET_CHANNEL_ID:
-            await turn_context.send_activity("⚠️ `/crear-ticket` solo funciona en el canal designado para esto.")
+        canal_actual = _channel_id(turn_context)
+        if canal_actual != TEAMS_TICKET_CHANNEL_ID:
+            await turn_context.send_activity(
+                "⚠️ `/crear-ticket` solo funciona en el canal/chat designado para esto.\n\n"
+                f"El ID de esta conversación es:\n`{canal_actual}`\n\n"
+                "Si querés habilitarla acá, actualizá la variable `TEAMS_TICKET_CHANNEL_ID` en GitHub con ese valor."
+            )
             return
         if rate_limited(usuario):
             await turn_context.send_activity("⏳ Estás usando el comando muy seguido. Espera un minuto.")
