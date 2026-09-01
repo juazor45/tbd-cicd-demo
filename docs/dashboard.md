@@ -1,10 +1,10 @@
 # Dashboard de auditoría
 
-_Generado automáticamente el 2026-08-31 19:16 UTC por `scripts/dashboard.py`. No editar a mano — lo regenera `.github/workflows/dashboard.yml`. Panel visual: [`docs/dashboard.html`](dashboard.html)._
+_Generado automáticamente el 2026-09-01 17:02 UTC por `scripts/dashboard.py`. No editar a mano — lo regenera `.github/workflows/dashboard.yml`. Panel visual: [`docs/dashboard.html`](dashboard.html)._
 
 | Ticket | Spec | Jira | Pipelines | PRs |
 |---|---|---|---|---|
-| **SCRUM-14** | [Agregar la divisa GBP al conversor de tipos de cambio](../specs/SCRUM-14.yml) | **QA Testing Done** — sin asignar (hace 118 h) | — sin ejecuciones encontradas — | [Ver PRs](https://github.com/juazor45/tbd-cicd-demo/pulls?q=is%3Apr+SCRUM-14) |
+| **SCRUM-14** | [Agregar la divisa GBP al conversor de tipos de cambio](../specs/SCRUM-14.yml) | **QA Testing Done** — sin asignar (hace 140 h) | — sin ejecuciones encontradas — | [Ver PRs](https://github.com/juazor45/tbd-cicd-demo/pulls?q=is%3Apr+SCRUM-14) |
 
 ---
 
