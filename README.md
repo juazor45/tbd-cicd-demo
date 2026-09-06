@@ -71,6 +71,24 @@ Dos capas de validación en cada PR, ambas en **modo advisorio** (informan, no b
 
 El agente conversacional también puede leer el spec: pregúntale "¿qué alcance tiene SCRUM-14?" y usa la tool `consultar_spec`.
 
+### Policy as code
+
+`validate_spec.py` ya no decide por su cuenta qué es una violación: arma el contexto (spec del ticket + archivos del PR) y se lo pasa a `scripts/policy.py`, un evaluador genérico de políticas declarativas (**Policy Decision Point**). La regla en sí vive en `policies/spec-compliance.yml`, no en código Python — separar la regla (declarativa, versionada) de quien la aplica es justamente lo que permite que políticas futuras (por ejemplo, las condiciones que hoy están como `if` sueltos en `cicd-cert.yml`, o los controles de `/crear-ticket` duplicados entre Slack y Teams) reusen el mismo motor en vez de reimplementar el matching cada vez.
+
+```yaml
+# policies/spec-compliance.yml
+policy: spec-compliance
+enforcement: advisory   # cambiar a "blocking" activa sys.exit(1) sin tocar código
+rules:
+  - id: archivos-permitidos
+    require:
+      archivos_dentro_de: "{{ spec.cambios_permitidos }}"
+    on_fail:
+      mensaje: "no esta en cambios_permitidos"
+```
+
+`policy.py` trae su propio parser mínimo de YAML (mapas/listas anidados) — deliberadamente separado del parser de `specs/*.yml`, que sí necesita soportar bloques folded (`contrato: >`) y ese es un formato distinto. Ninguno de los dos usa PyYAML, siguiendo la misma filosofía de cero dependencias externas del resto de `scripts/`.
+
 ### Dashboard de auditoría
 
 Por cada ticket con spec declarado, agrega todo lo que hoy hay que ir a buscar por separado: el spec (contrato y evidencia requerida), el estado en Jira, la fase del proceso y su siguiente paso, las últimas ejecuciones de pipeline (con el job/step exacto si hay una en curso), y un enlace a los PRs relacionados. Lo genera `scripts/dashboard.py` (sin dependencias externas, reutiliza las mismas tools que el asistente) en dos formatos:
@@ -463,7 +481,9 @@ En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Requ
 │                          azure-apagar · azure-encender · teams-bot-deploy
 ├── src/                   microservicio Quarkus (main y test)
 ├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
+├── policies/               reglas declarativas (policy as code): spec-compliance.yml
 ├── scripts/
+│   ├── policy.py           evaluador generico de policies/*.yml (Policy Decision Point)
 │   ├── tools.py / http_client.py / process-template.yml / version.py / dashboard.py
 │   ├── assistant.py       interfaz de terminal
 │   ├── slack_bot.py       bot de Slack (legado, funcional)
