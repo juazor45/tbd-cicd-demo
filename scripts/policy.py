@@ -22,8 +22,10 @@ no es un parser YAML general, no reemplaza a PyYAML.
 """
 
 import fnmatch
+import json
 import logging
 import os
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -207,9 +209,26 @@ def _pred_archivos_fuera_de(patrones, contexto):
     return (len(fallas) == 0), fallas
 
 
+def _pred_rama_es(esperada, contexto):
+    rama = contexto.get("rama")
+    ok = rama == esperada
+    detalle = [] if ok else [{"rama": rama, "esperada": esperada}]
+    return ok, detalle
+
+
+def _pred_jira_estado_en(estados_validos, contexto):
+    estados_validos = estados_validos or []
+    estado = contexto.get("jira_estado")
+    ok = estado in estados_validos
+    detalle = [] if ok else [{"jira_estado": estado, "esperados": estados_validos}]
+    return ok, detalle
+
+
 PREDICADOS = {
     "archivos_dentro_de": _pred_archivos_dentro_de,
     "archivos_fuera_de": _pred_archivos_fuera_de,
+    "rama_es": _pred_rama_es,
+    "jira_estado_en": _pred_jira_estado_en,
 }
 
 
@@ -267,3 +286,54 @@ def evaluar(nombre_politica, contexto):
 
     logger.info("policy(%s): %s", nombre_politica, decision)
     return decision
+
+
+# ----------------------------------------------------------------------
+# CLI: para llamarlo desde un workflow en bash (cicd-cert.yml, etc.), sin
+# tener que escribir un wrapper en Python como hace validate_spec.py para
+# spec-compliance. Uso:
+#   python3 scripts/policy.py --politica deploy-policy --contexto '{"rama": "main", "jira_estado": "Construcción Done"}'
+# Imprime un reporte legible y termina con exit 0 si esta permitido (o si
+# la politica es advisory), exit 1 si esta bloqueado y enforcement=blocking
+# -- pensado para un step de GitHub Actions que corre con 'bash -e' por
+# defecto: un exit 1 aca aborta el step sin necesitar chequear $? a mano.
+# ----------------------------------------------------------------------
+def _formatear_mensaje(mensaje, contexto):
+    try:
+        return mensaje.format(**contexto)
+    except (KeyError, IndexError):
+        return mensaje
+
+
+def _main_cli():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Evalua una politica declarativa de policies/*.yml contra un contexto.")
+    parser.add_argument("--politica", required=True, help="Nombre del archivo en policies/ (sin .yml)")
+    parser.add_argument("--contexto", required=True, help="Contexto en JSON, ej: '{\"rama\": \"main\"}'")
+    args = parser.parse_args()
+
+    try:
+        contexto = json.loads(args.contexto)
+    except json.JSONDecodeError as e:
+        print(f"❌ --contexto no es JSON valido: {e}")
+        sys.exit(1)
+
+    decision = evaluar(args.politica, contexto)
+
+    if decision.permitido:
+        print(f"✅ {args.politica}: OK")
+        sys.exit(0)
+
+    for v in decision.violaciones:
+        print(f"❌ [{v['regla_id']}] {_formatear_mensaje(v['mensaje'], contexto)}")
+
+    etiqueta = "BLOQUEANTE" if decision.enforcement == "blocking" else "ADVISORIO (no bloquea)"
+    print(f"\n{etiqueta}: {args.politica} no se cumple")
+
+    if decision.enforcement == "blocking":
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    _main_cli()

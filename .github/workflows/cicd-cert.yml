@@ -41,13 +41,27 @@ jobs:
         with:
           fetch-depth: 0 # necesario: scripts/version.py necesita ver los tags e historial completo
 
-      - name: Validar que el código proviene del trunk
-        if: ${{ github.ref_name != 'main' }}
+      - name: Evaluar deploy-policy (rama + estado de Jira)
+        # Reemplaza dos chequeos que antes vivian sueltos (un step
+        # condicional para la rama, y un 'if' bash dentro del step de Jira
+        # de mas abajo) por una sola llamada al motor de politicas -- la
+        # regla en si vive en policies/deploy-policy.yml, no aca.
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKET: ${{ github.event.inputs.change_ticket }}
         run: |
-          echo "❌ CICD-CERT solo puede ejecutarse desde 'main'."
-          echo "   Rama recibida: ${{ github.ref_name }}"
-          echo "   El código debe integrarse al trunk vía Pull Request (con CI y validado-en-dev) antes de certificar."
-          exit 1
+          STATUS=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET?fields=status,summary" \
+            | jq -r '.fields.status.name // empty')
+          if [ -z "$STATUS" ]; then
+            echo "❌ El ticket $TICKET no existe o las credenciales fallan. Abortando."
+            exit 1
+          fi
+          echo "Estado actual en Jira: $STATUS"
+          CONTEXTO=$(jq -n --arg rama "${{ github.ref_name }}" --arg estado "$STATUS" '{rama: $rama, jira_estado: $estado}')
+          python3 scripts/policy.py --politica deploy-policy --contexto "$CONTEXTO"
 
       - name: Prepare (JDK 17 + Maven)
         uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
@@ -68,29 +82,15 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "📦 Versión de este release candidate: $VERSION"
 
-      - name: Jira - Validar ticket e iniciar Congelamiento
+      - name: Jira - Iniciar Congelamiento
+        # La validacion de estado ya la hizo el step "Evaluar deploy-policy"
+        # de mas arriba -- este step solo ejecuta la transicion.
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           TICKET: ${{ github.event.inputs.change_ticket }}
         run: |
-          echo "📋 Consultando $TICKET en Jira..."
-          STATUS=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-            "$JIRA_BASE_URL/rest/api/3/issue/$TICKET?fields=status,summary" \
-            | jq -r '.fields.status.name // empty')
-
-          if [ -z "$STATUS" ]; then
-            echo "❌ El ticket $TICKET no existe o las credenciales fallan. Abortando."
-            exit 1
-          fi
-          echo "Estado actual: $STATUS"
-
-          if [ "$STATUS" != "Construcción Done" ] && [ "$STATUS" != "Congelamiento Doing" ]; then
-            echo "❌ Para promover a CERT el ticket debe estar en 'Construcción Done' (está en '$STATUS'). Abortando."
-            exit 1
-          fi
-
           # Mover a Congelamiento Doing (inicio de la promoción)
           TRANSITION_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
             "$JIRA_BASE_URL/rest/api/3/issue/$TICKET/transitions" \

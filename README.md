@@ -73,7 +73,16 @@ El agente conversacional también puede leer el spec: pregúntale "¿qué alcanc
 
 ### Policy as code
 
-`validate_spec.py` ya no decide por su cuenta qué es una violación: arma el contexto (spec del ticket + archivos del PR) y se lo pasa a `scripts/policy.py`, un evaluador genérico de políticas declarativas (**Policy Decision Point**). La regla en sí vive en `policies/spec-compliance.yml`, no en código Python — separar la regla (declarativa, versionada) de quien la aplica es justamente lo que permite que políticas futuras (por ejemplo, las condiciones que hoy están como `if` sueltos en `cicd-cert.yml`, o los controles de `/crear-ticket` duplicados entre Slack y Teams) reusen el mismo motor en vez de reimplementar el matching cada vez.
+Las reglas de negocio que antes vivían enterradas en distintos lugares (matching de archivos en Python, condicionales bash en workflows) se están migrando a `policies/*.yml`, evaluadas por un único motor genérico: `scripts/policy.py`, el **Policy Decision Point**. Separar la regla (declarativa, versionada) de quien la aplica es lo que permite que cada punto de aplicación le pregunte al mismo evaluador en vez de reimplementar la lógica por su cuenta.
+
+| Fase | Política | Quién la aplica | Qué reemplaza |
+|---|---|---|---|
+| 1 | `spec-compliance.yml` | `ci-pr.yml` → `validate_spec.py` | El matching de archivos contra `cambios_permitidos`/`cambios_prohibidos` que antes estaba escrito a mano en Python |
+| 2 | `deploy-policy.yml` | `cicd-cert.yml` (step "Evaluar deploy-policy") | Los dos `if` sueltos que exigían rama `main` y un estado de Jira válido antes de certificar |
+
+`scripts/policy.py` se usa de dos formas: importado directo desde Python (como hace `validate_spec.py`), o por línea de comandos desde un workflow en bash (`python3 scripts/policy.py --politica deploy-policy --contexto '{"rama": "main", ...}'`), imprimiendo un reporte legible y devolviendo el exit code correcto según el `enforcement` (`advisory`/`blocking`) declarado en cada política.
+
+Su parser de YAML es deliberadamente mínimo — entiende mapas y listas anidados por indentación, pero **no** bloques folded (`>`/`|`) ni listas en línea (`[a, b]`); por eso los mensajes largos van en una sola línea entre comillas, y las listas siempre en formato bloque, un `-` por ítem. Es un parser distinto y separado del de `specs/*.yml` (que sí necesita bloques folded para el campo `contrato`) — cada formato tiene el parser mínimo que le alcanza, sin sumar PyYAML como dependencia.
 
 ```yaml
 # policies/spec-compliance.yml
@@ -153,8 +162,7 @@ Los workflows manuales llevan el ticket en el título del run (`run-name`), lo q
 |---|---|
 | Check `CI` requerido en el PR | Integrar código que no compila o con tests rotos |
 | Check `validado-en-dev` requerido | Mergear un commit que no fue desplegado y probado en desarrollo. El status se asocia al SHA: si alguien empuja un commit nuevo al PR, el merge se bloquea hasta volver a validar |
-| Guard de rama en `cicd-cert.yml` | Certificar código que no pasó por Pull Request (el pipeline aborta si no corre desde `main`) |
-| Estado del ticket en `cicd-cert.yml` | Promover a certificación un cambio que no completó la fase de construcción |
+| Guard de rama y estado de Jira (`policies/deploy-policy.yml`) | Certificar código que no pasó por Pull Request, o promover un ticket que no completó la fase de construcción -- ver [Policy as code](#policy-as-code) |
 | Approval del environment `cert` | Desplegar en certificación sin aprobación humana |
 
 Como refuerzo, el environment `cert` restringe los despliegues a la rama `main`, de modo que el control no depende únicamente del YAML.
@@ -481,7 +489,7 @@ En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Requ
 │                          azure-apagar · azure-encender · teams-bot-deploy
 ├── src/                   microservicio Quarkus (main y test)
 ├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
-├── policies/               reglas declarativas (policy as code): spec-compliance.yml
+├── policies/               reglas declarativas (policy as code): spec-compliance · deploy-policy
 ├── scripts/
 │   ├── policy.py           evaluador generico de policies/*.yml (Policy Decision Point)
 │   ├── tools.py / http_client.py / process-template.yml / version.py / dashboard.py
