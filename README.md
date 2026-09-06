@@ -80,6 +80,7 @@ Las reglas de negocio que antes vivían enterradas en distintos lugares (matchin
 | 1 | `spec-compliance.yml` | `ci-pr.yml` → `validate_spec.py` | El matching de archivos contra `cambios_permitidos`/`cambios_prohibidos` que antes estaba escrito a mano en Python |
 | 2 | `deploy-policy.yml` | `cicd-cert.yml` (step "Evaluar deploy-policy") | Los dos `if` sueltos que exigían rama `main` y un estado de Jira válido antes de certificar |
 | 3 | `bot-policy.yml` | `slack_bot.py` y `teams_bot/bot.py` (`/crear-ticket` + consultas libres) | Los controles de canal autorizado, rate limit y "solo quien inició la creación puede confirmarla", que estaban duplicados casi al calco en los dos bots |
+| 4 | (todas) | `consultar_politica`, tool del agente conversacional | Nada que reemplazar -- deja el contenido de cualquier política al alcance de una pregunta en lenguaje natural, en vez de tener que abrir el YAML a mano |
 
 `scripts/policy.py` se usa de dos formas: importado directo desde Python (como hace `validate_spec.py`), o por línea de comandos desde un workflow en bash (`python3 scripts/policy.py --politica deploy-policy --contexto '{"rama": "main", ...}'`), imprimiendo un reporte legible y devolviendo el exit code correcto según el `enforcement` (`advisory`/`blocking`) declarado en cada política.
 
@@ -205,6 +206,7 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 - `detalle_ejecucion` — jobs y steps: dónde falló, qué ejecuta o qué espera aprobación
 - `consultar_proceso` — el template con fases, criterios y siguiente paso
 - `consultar_spec` — el contrato del ticket: qué debe cambiar, qué no debe tocarse, evidencia requerida
+- `consultar_politica` — el contenido de una política de [policy as code](#policy-as-code) (`policies/*.yml`): sus reglas, enforcement y mensajes, para explicar qué controla el pipeline o los bots
 
 **Multi-repositorio**: si el proyecto crece a varios microservicios en varios repos, el asistente no depende de un único `GITHUB_REPO` fijo para todo. `jira-branch.yml` deja un comentario con el link al repo (`github.com/<owner>/<repo>/tree/<rama>`) apenas se crea la rama de un ticket -- lo mismo que `release.yml` ya hacía al publicar el release. `resolver_repo(ticket)`, en `scripts/tools.py`, lee esos comentarios y detecta a qué repositorio pertenece cada ticket (con caché en memoria); `consultar_pipelines` lo usa automáticamente cuando se le pasa un `ticket`, y devuelve el repo resuelto en su campo `repositorio`, que el agente reenvía a `detalle_ejecucion` si hace falta. Si un ticket no tiene ningún comentario con link a GitHub (por ejemplo, si la rama se creó sin pasar por `jira-branch.yml`), cae de vuelta al `GITHUB_REPO` configurado por defecto -- el comportamiento de siempre, sin romper nada para instalaciones de un solo repo.
 
@@ -390,7 +392,7 @@ Ambos corren desde **Actions → (el workflow) → Run workflow**, eligiendo `de
 
 ## 8. Bot de Microsoft Teams (Azure Bot Service + Functions)
 
-El asistente conversacional y `/crear-ticket` corren también en Microsoft Teams, con la misma lógica de negocio que el bot de Slack (mismas 5 tools, mismos controles de seguridad de `/crear-ticket`, mismo rate limiting) -- lo único que cambia es la capa de transporte: Socket Mode (conexión saliente) se reemplaza por un webhook HTTP, y los modales de Block Kit se reemplazan por Adaptive Cards.
+El asistente conversacional y `/crear-ticket` corren también en Microsoft Teams, con la misma lógica de negocio que el bot de Slack (mismas 6 tools, mismos controles de seguridad de `/crear-ticket` vía [bot-policy](#policy-as-code), mismo rate limiting) -- lo único que cambia es la capa de transporte: Socket Mode (conexión saliente) se reemplaza por un webhook HTTP, y los modales de Block Kit se reemplazan por Adaptive Cards.
 
 ### Arquitectura
 

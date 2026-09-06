@@ -8,6 +8,7 @@ Cada función es una "tool" que el agente puede invocar:
   - consultar_pipelines   → últimas ejecuciones de los workflows
   - detalle_ejecucion     → jobs y steps de un run (dónde se quedó)
   - consultar_proceso     → el template del proceso (fases, evidencia, siguiente paso)
+  - consultar_politica    → el contenido de una politica declarativa (policies/*.yml)
 
 crear_ticket(), comentar_ticket() y listar_tipos_issue() (creacion de issues en
 Jira) viven en este archivo por consistencia, pero a proposito NO estan en
@@ -26,6 +27,7 @@ import logging
 import os
 import re
 
+import policy
 from http_client import age, gh_headers, http_get, http_post, jira_headers
 
 logger = logging.getLogger(__name__)
@@ -247,6 +249,33 @@ def consultar_proceso():
         return {"error": f"No se encontró {TEMPLATE_FILE}"}
 
 
+def _politicas_disponibles():
+    try:
+        return sorted(
+            n[:-4] for n in os.listdir(policy.POLICIES_DIR) if n.endswith(".yml")
+        )
+    except FileNotFoundError:
+        return []
+
+
+def consultar_politica(nombre):
+    """Devuelve el contenido crudo de una politica declarativa de policies/<nombre>.yml
+    (reglas, enforcement, mensajes) para que el agente la explique en lenguaje natural."""
+    logger.info("tool consultar_politica(nombre=%s)", nombre)
+    politica_path = os.path.join(policy.POLICIES_DIR, f"{nombre}.yml")
+    try:
+        contenido = open(politica_path, encoding="utf-8").read()
+        logger.info("tool consultar_politica(%s) OK: %d bytes leidos", nombre, len(contenido))
+        return {"politica": nombre, "contenido": contenido}
+    except FileNotFoundError:
+        disponibles = _politicas_disponibles()
+        logger.warning("tool consultar_politica(%s) fallo: no existe %s", nombre, politica_path)
+        return {
+            "error": f"No existe la política '{nombre}' (policies/{nombre}.yml).",
+            "politicas_disponibles": disponibles,
+        }
+
+
 # ----------------------------------------------------------------------
 # Creacion de tickets (NO expuestas al agente conversacional -- ver docstring
 # del modulo). Solo las llama el flujo de /crear-ticket en slack_bot.py.
@@ -404,6 +433,17 @@ TOOL_SCHEMAS = [
         "description": "Devuelve el template documentado del proceso de release: cada fase, qué la evidencia y cuál es el siguiente paso. Úsala para explicar en qué fase está el release y qué debe hacer el usuario a continuación.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "consultar_politica",
+        "description": "Devuelve el contenido de una política declarativa de policy as code (policies/<nombre>.yml): sus reglas, qué exige cada una, su nivel de enforcement (advisory/blocking) y los mensajes que muestra si falla. Úsala cuando pregunten qué controla el pipeline o los bots, por qué se bloqueó algo, o qué dice una política puntual. Políticas conocidas: 'spec-compliance' (qué archivos puede tocar un PR), 'deploy-policy' (rama y estado de Jira exigidos para certificar), 'bot-policy' (canal autorizado, rate limit y confirmación de /crear-ticket en Slack/Teams). Si el nombre no existe, la respuesta trae la lista de políticas disponibles.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nombre": {"type": "string", "description": "Nombre del archivo en policies/ sin extensión, ej. deploy-policy"}
+            },
+            "required": ["nombre"],
+        },
+    },
 ]
 
 TOOL_FUNCTIONS = {
@@ -412,4 +452,5 @@ TOOL_FUNCTIONS = {
     "detalle_ejecucion": detalle_ejecucion,
     "consultar_proceso": consultar_proceso,
     "consultar_spec": consultar_spec,
+    "consultar_politica": consultar_politica,
 }
