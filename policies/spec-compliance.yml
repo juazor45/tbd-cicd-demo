@@ -1,0 +1,27 @@
+# spec-compliance — Fase 1 de policy as code.
+#
+# Formaliza como regla nombrada y reusable lo que validate_spec.py ya hacia
+# a mano: que un PR no toque archivos fuera de lo declarado en su
+# specs/<TICKET>.yml. Los VALORES concretos (que patrones estan permitidos
+# o prohibidos) siguen viviendo por ticket en specs/<TICKET>.yml -- esta
+# politica define la REGLA generica, no los datos de cada ticket.
+#
+# "{{ spec.cambios_permitidos }}" y "{{ spec.cambios_prohibidos }}" se
+# resuelven en tiempo de evaluacion contra el contexto que arma quien llama
+# (hoy: validate_spec.py, leyendo el spec del ticket detectado en la rama).
+
+policy: spec-compliance
+version: 1
+enforcement: advisory
+
+rules:
+  - id: archivos-permitidos
+    require:
+      archivos_dentro_de: "{{ spec.cambios_permitidos }}"
+    on_fail:
+      mensaje: "no esta en cambios_permitidos"
+  - id: archivos-prohibidos
+    require:
+      archivos_fuera_de: "{{ spec.cambios_prohibidos }}"
+    on_fail:
+      mensaje: "coincide con un patron PROHIBIDO"

@@ -4,9 +4,18 @@
 validate_spec.py — Valida que un PR se mantenga dentro de los limites
 declarados en specs/<TICKET>.yml (cambios_permitidos / cambios_prohibidos).
 
-MODO ADVISORIO: hoy solo informa (no falla el build). Se puede promover a
-bloqueante mas adelante cambiando ADVISORY = False, cuando el equipo ya
-tenga el habito de crear el spec al iniciar cada ticket.
+Desde la Fase 1 de policy as code, este script ya NO decide por su cuenta
+que es una violacion: arma el contexto (que dice el spec del ticket, que
+archivos toco el PR) y se lo pasa a policy.evaluar("spec-compliance", ...),
+en policy.py. La regla en si vive en policies/spec-compliance.yml -- este
+archivo solo la alimenta con los datos de este ticket puntual y traduce la
+Decision resultante al mismo formato de mensajes que ya se mostraba antes
+del refactor, para no romper la lectura del step en ci-pr.yml.
+
+MODO ADVISORIO: el enforcement real lo declara policies/spec-compliance.yml
+(hoy "advisory": informa, no falla el build). Cuando el equipo tenga el
+habito de crear el spec al iniciar cada ticket, alcanza con cambiar ese
+campo a "blocking" en el YAML -- no hace falta tocar este script.
 
 Uso (pensado para correr dentro de ci-pr.yml):
   python3 scripts/validate_spec.py <rama> <archivo_con_lista_de_paths>
@@ -20,13 +29,12 @@ No usa PyYAML a proposito, para no agregar un paso de "pip install" a un
 workflow que hoy no lo necesita.
 """
 
-import fnmatch
 import logging
 import os
 import re
 import sys
 
-ADVISORY = True  # cambiar a False para que un hallazgo bloquee el merge
+import policy
 
 SPECS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "specs")
 LIST_KEYS = ("cambios_permitidos", "cambios_prohibidos", "evidencia_requerida")
@@ -48,7 +56,11 @@ def parsear_spec(path):
     """Parser minimo: separa escalares ('key: value'), listas ('key:' + '  - item')
     y bloques de texto estilo YAML folded/literal ('key: >' o 'key: |' + lineas
     indentadas). No es un parser YAML completo -- solo entiende la estructura
-    fija de specs/TEMPLATE.yml."""
+    fija de specs/TEMPLATE.yml. Es deliberadamente independiente del parser de
+    policy.py: ese esta hecho a medida de policies/*.yml (mapas/listas
+    anidados, sin bloques folded), y specs/*.yml si usa bloques folded para
+    'contrato' -- son dos formas de YAML distintas, cada una con su parser
+    minimo en vez de forzar un parser generico a cubrir ambas."""
     datos = {}
     clave_actual = None
     en_bloque = False
@@ -79,14 +91,28 @@ def parsear_spec(path):
     return datos
 
 
+def _formatear_violacion(v):
+    """Traduce una violacion de la Decision al mismo texto que mostraba la
+    version anterior (pre-Fase 1) de este script."""
+    detalle = v["detalle"]
+    lineas = []
+    for item in detalle:
+        archivo = item.get("archivo", "?")
+        if "patron" in item:
+            lineas.append(f"❌ '{archivo}' coincide con un patron PROHIBIDO ('{item['patron']}')")
+        else:
+            lineas.append(f"⚠️ '{archivo}' {v['mensaje']}")
+    return lineas
+
+
 def main():
     if len(sys.argv) < 3:
         print("Uso: validate_spec.py <rama> <archivo_con_lista_de_paths>")
-        sys.exit(0 if ADVISORY else 1)
+        sys.exit(0)
 
     rama, archivo_diff = sys.argv[1], sys.argv[2]
     ticket = extraer_ticket(rama)
-    logger.info("validate_spec: rama=%s ticket_detectado=%s advisory=%s", rama, ticket, ADVISORY)
+    logger.info("validate_spec: rama=%s ticket_detectado=%s", rama, ticket)
 
     if not ticket:
         print(f"ℹ️ La rama '{rama}' no tiene ticket detectable; se omite la validacion de spec.")
@@ -96,13 +122,9 @@ def main():
     if not os.path.isfile(spec_path):
         print(f"⚠️ No existe specs/{ticket}.yml — este PR no tiene un spec declarado.")
         logger.warning("validate_spec: no existe %s", spec_path)
-        if not ADVISORY:
-            sys.exit(1)
         return
 
     spec = parsear_spec(spec_path)
-    permitidos = spec.get("cambios_permitidos", [])
-    prohibidos = spec.get("cambios_prohibidos", [])
 
     with open(archivo_diff, encoding="utf-8") as f:
         archivos = [l.strip() for l in f if l.strip()]
@@ -112,22 +134,20 @@ def main():
 
     ruta_propio_spec = os.path.relpath(spec_path, os.path.join(SPECS_DIR, "..")).replace(os.sep, "/")
 
-    hallazgos = []
-    for path in archivos:
-        if path == ruta_propio_spec:
-            continue  # todo PR puede crear/actualizar su propio spec
-        for patron in prohibidos:
-            if fnmatch.fnmatch(path, patron):
-                hallazgos.append(f"❌ '{path}' coincide con un patron PROHIBIDO ('{patron}')")
-        if permitidos and not any(fnmatch.fnmatch(path, p) for p in permitidos):
-            hallazgos.append(f"⚠️ '{path}' no esta en cambios_permitidos")
+    contexto = {
+        "spec": spec,
+        "archivos_modificados": archivos,
+        "excluir": [ruta_propio_spec],  # todo PR puede crear/actualizar su propio spec
+    }
+    decision = policy.evaluar("spec-compliance", contexto)
 
-    if hallazgos:
-        print("\n".join(hallazgos))
-        etiqueta = "ADVISORIO (no bloquea)" if ADVISORY else "BLOQUEANTE"
+    if not decision.permitido:
+        for v in decision.violaciones:
+            print("\n".join(_formatear_violacion(v)))
+        etiqueta = "ADVISORIO (no bloquea)" if decision.enforcement == "advisory" else "BLOQUEANTE"
         print(f"\n{etiqueta}: el PR se sale de lo declarado en specs/{ticket}.yml")
-        logger.warning("validate_spec(%s): %d hallazgo(s)", ticket, len(hallazgos))
-        if not ADVISORY:
+        logger.warning("validate_spec(%s): %d violacion(es), enforcement=%s", ticket, len(decision.violaciones), decision.enforcement)
+        if decision.enforcement == "blocking":
             sys.exit(1)
     else:
         print("✅ El PR se mantiene dentro de los limites declarados en el spec.")
