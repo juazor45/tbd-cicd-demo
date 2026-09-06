@@ -23,11 +23,18 @@ jobs:
           # tools.py/http_client.py/specs/ viven en un solo lugar en el repo
           # (scripts/ y specs/ en la raíz) -- se copian acá solo para el
           # empaquetado de deploy, nunca se edita la copia a mano.
+          # policy.py + policies/ se suman acá desde la Fase 3 de policy as
+          # code: bot.py ahora hace "import policy" (ver bot-policy.yml) --
+          # si alguna vez agregás un módulo nuevo que el bot importa,
+          # agregalo también a este paso de sincronización.
           cp scripts/tools.py scripts/teams_bot/tools.py
           cp scripts/http_client.py scripts/teams_bot/http_client.py
           cp scripts/process-template.yml scripts/teams_bot/process-template.yml
+          cp scripts/policy.py scripts/teams_bot/policy.py
           rm -rf scripts/teams_bot/specs
           cp -r specs scripts/teams_bot/specs
+          rm -rf scripts/teams_bot/policies
+          cp -r policies scripts/teams_bot/policies
           echo "📦 Módulos compartidos sincronizados en scripts/teams_bot/"
 
       - name: Setup Python
@@ -69,6 +76,7 @@ jobs:
             -n "${{ vars.AZURE_FUNCTIONAPP_NAME }}" \
             --settings \
               "SPECS_DIR=specs" \
+              "POLICIES_DIR=policies" \
               "GITHUB_REPO=${{ github.repository }}" \
               "JIRA_PROJECT_KEY=${{ vars.JIRA_PROJECT_KEY }}" \
               "TEAMS_TICKET_CHANNEL_ID=${{ vars.TEAMS_TICKET_CHANNEL_ID }}" \
