@@ -38,6 +38,7 @@ from anthropic import Anthropic
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
+import policy
 from tools import (
     MAX_DESCRIPCION, MAX_TITULO, TOOL_FUNCTIONS, TOOL_SCHEMAS,
     comentar_ticket, crear_ticket, listar_tipos_issue,
@@ -281,7 +282,8 @@ def consultar_agente(pregunta, hilo_id, on_tool=None):
 
 def responder(say, client_slack, canal, hilo, pregunta, usuario=None):
     """Publica un mensaje de progreso, lo va actualizando y lo reemplaza con la respuesta."""
-    if _rate_limited(usuario):
+    decision = policy.evaluar("bot-policy", {"rate_limitado": _rate_limited(usuario)}, reglas=["sin-rate-limit"])
+    if not decision.permitido:
         logger.info("rate limit aplicado a usuario=%s", usuario)
         say(text="⏳ Estás consultando muy seguido. Espera un minuto e intenta de nuevo.", thread_ts=hilo)
         return
@@ -357,11 +359,17 @@ def cmd_crear_ticket(ack, command, client):
         client.chat_postEphemeral(channel=canal, user=usuario,
                                    text="⚠️ Este comando no está configurado todavía (falta JIRA_TICKET_CHANNEL_ID o JIRA_PROJECT_KEY).")
         return
-    if canal != JIRA_TICKET_CHANNEL_ID:
+    decision_canal = policy.evaluar(
+        "bot-policy",
+        {"canal_actual": canal, "canal_permitido": JIRA_TICKET_CHANNEL_ID},
+        reglas=["canal-autorizado"],
+    )
+    if not decision_canal.permitido:
         client.chat_postEphemeral(channel=canal, user=usuario,
                                    text=f"⚠️ /crear-ticket solo funciona en <#{JIRA_TICKET_CHANNEL_ID}>.")
         return
-    if _rate_limited(usuario):
+    decision_rate = policy.evaluar("bot-policy", {"rate_limitado": _rate_limited(usuario)}, reglas=["sin-rate-limit"])
+    if not decision_rate.permitido:
         client.chat_postEphemeral(channel=canal, user=usuario,
                                    text="⏳ Estás usando el comando muy seguido. Espera un minuto.")
         return
@@ -442,7 +450,12 @@ def on_confirmar_ticket(ack, body, client):
     if not datos:
         client.chat_update(channel=canal, ts=ts, text="⚠️ Esta confirmación ya expiró o ya se usó.")
         return
-    if usuario_click != datos["usuario"]:
+    decision = policy.evaluar(
+        "bot-policy",
+        {"usuario_actual": usuario_click, "usuario_inicio": datos["usuario"]},
+        reglas=["confirmado-por-mismo-usuario"],
+    )
+    if not decision.permitido:
         # Evita que un tercero confirme/cancele una creación que no inició.
         client.chat_postEphemeral(channel=canal, user=usuario_click,
                                    text="Solo quien inició la creación puede confirmarla.")

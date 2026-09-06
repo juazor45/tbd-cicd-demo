@@ -79,6 +79,7 @@ Las reglas de negocio que antes vivían enterradas en distintos lugares (matchin
 |---|---|---|---|
 | 1 | `spec-compliance.yml` | `ci-pr.yml` → `validate_spec.py` | El matching de archivos contra `cambios_permitidos`/`cambios_prohibidos` que antes estaba escrito a mano en Python |
 | 2 | `deploy-policy.yml` | `cicd-cert.yml` (step "Evaluar deploy-policy") | Los dos `if` sueltos que exigían rama `main` y un estado de Jira válido antes de certificar |
+| 3 | `bot-policy.yml` | `slack_bot.py` y `teams_bot/bot.py` (`/crear-ticket` + consultas libres) | Los controles de canal autorizado, rate limit y "solo quien inició la creación puede confirmarla", que estaban duplicados casi al calco en los dos bots |
 
 `scripts/policy.py` se usa de dos formas: importado directo desde Python (como hace `validate_spec.py`), o por línea de comandos desde un workflow en bash (`python3 scripts/policy.py --politica deploy-policy --contexto '{"rama": "main", ...}'`), imprimiendo un reporte legible y devolviendo el exit code correcto según el `enforcement` (`advisory`/`blocking`) declarado en cada política.
 
@@ -97,6 +98,8 @@ rules:
 ```
 
 `policy.py` trae su propio parser mínimo de YAML (mapas/listas anidados) — deliberadamente separado del parser de `specs/*.yml`, que sí necesita soportar bloques folded (`contrato: >`) y ese es un formato distinto. Ninguno de los dos usa PyYAML, siguiendo la misma filosofía de cero dependencias externas del resto de `scripts/`.
+
+`bot-policy.yml` (Fase 3) tiene una particularidad: sus tres reglas (`sin-rate-limit`, `canal-autorizado`, `confirmado-por-mismo-usuario`) no siempre aplican juntas -- cada punto del flujo del bot evalúa solo el subconjunto que le corresponde, con `evaluar(politica, contexto, reglas=["..."])`. El rate limit en sí (`state.rate_limited()` en Teams, `_rate_limited()` en Slack) sigue viviendo en cada bot porque es *stateful* (registra el intento al mismo tiempo que lo chequea); lo que hace `policy.py` es decidir, de forma pura, si ese resultado ya calculado bloquea o no. El bot de Teams copia `policy.py` y `policies/` dentro de `scripts/teams_bot/` al desplegar (mismo mecanismo que ya usaba con `specs/`, ver `POLICIES_DIR` en `teams-bot-deploy.yml`) -- si agregás un módulo nuevo que el bot importe, hay que sumarlo a ese mismo paso de sincronización.
 
 ### Dashboard de auditoría
 

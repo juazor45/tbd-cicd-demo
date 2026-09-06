@@ -25,6 +25,7 @@ import re
 from botbuilder.core import ActivityHandler, CardFactory, MessageFactory, TurnContext
 from botbuilder.schema import Activity, ActivityTypes
 
+import policy
 from agent import consultar_agente
 from cards import card_confirmacion, card_crear_ticket_form, card_resultado_creado
 from state import (
@@ -124,14 +125,20 @@ class DeployGoBot(ActivityHandler):
             )
             return
         canal_actual = _channel_id(turn_context)
-        if canal_actual != TEAMS_TICKET_CHANNEL_ID:
+        decision_canal = policy.evaluar(
+            "bot-policy",
+            {"canal_actual": canal_actual, "canal_permitido": TEAMS_TICKET_CHANNEL_ID},
+            reglas=["canal-autorizado"],
+        )
+        if not decision_canal.permitido:
             await turn_context.send_activity(
                 "⚠️ `/crear-ticket` solo funciona en el canal/chat designado para esto.\n\n"
                 f"El ID de esta conversación es:\n`{canal_actual}`\n\n"
                 "Si querés habilitarla acá, actualizá la variable `TEAMS_TICKET_CHANNEL_ID` en GitHub con ese valor."
             )
             return
-        if rate_limited(usuario):
+        decision_rate = policy.evaluar("bot-policy", {"rate_limitado": rate_limited(usuario)}, reglas=["sin-rate-limit"])
+        if not decision_rate.permitido:
             await turn_context.send_activity("⏳ Estás usando el comando muy seguido. Espera un minuto.")
             return
         tipos = _tipos_disponibles()
@@ -183,7 +190,12 @@ class DeployGoBot(ActivityHandler):
             if not datos:
                 await turn_context.send_activity("⚠️ Esta confirmación ya expiró o ya se usó.")
                 return
-            if usuario != datos["usuario"]:
+            decision = policy.evaluar(
+                "bot-policy",
+                {"usuario_actual": usuario, "usuario_inicio": datos["usuario"]},
+                reglas=["confirmado-por-mismo-usuario"],
+            )
+            if not decision.permitido:
                 devolver_borrador(token, datos)
                 await turn_context.send_activity("Solo quien inició la creación puede confirmarla.")
                 return
@@ -223,7 +235,8 @@ class DeployGoBot(ActivityHandler):
     # ---------------- Chat conversacional ----------------
 
     async def _responder(self, turn_context: TurnContext, pregunta, usuario):
-        if rate_limited(usuario):
+        decision = policy.evaluar("bot-policy", {"rate_limitado": rate_limited(usuario)}, reglas=["sin-rate-limit"])
+        if not decision.permitido:
             await turn_context.send_activity("⏳ Estás consultando muy seguido. Espera un minuto e intenta de nuevo.")
             return
 

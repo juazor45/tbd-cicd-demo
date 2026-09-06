@@ -1,0 +1,33 @@
+# bot-policy — Fase 3 de policy as code.
+#
+# Formaliza los tres controles de /crear-ticket que hasta ahora estaban
+# escritos dos veces, una en scripts/slack_bot.py y otra en
+# scripts/teams_bot/bot.py -- con el riesgo real de que diverjan (ya paso
+# en este proyecto). Los mensajes son deliberadamente genericos: cada bot
+# le puede sumar detalle especifico de su plataforma (el hint del canal en
+# Teams, la mencion <#ID> en Slack) al mostrar la violacion.
+#
+# "sin-rate-limit" aplica tanto a /crear-ticket como a cualquier consulta
+# libre al agente -- el llamador decide que subconjunto de reglas evaluar
+# en cada punto (ver evaluar(..., reglas=[...]) en policy.py).
+
+policy: bot-policy
+version: 1
+enforcement: blocking
+
+rules:
+  - id: sin-rate-limit
+    require:
+      rate_limit_ok: true
+    on_fail:
+      mensaje: "Estas usando el comando muy seguido. Espera un minuto."
+  - id: canal-autorizado
+    require:
+      canal_es: "{{ canal_permitido }}"
+    on_fail:
+      mensaje: "/crear-ticket solo funciona en el canal o chat designado para esto."
+  - id: confirmado-por-mismo-usuario
+    require:
+      mismo_usuario: true
+    on_fail:
+      mensaje: "Solo quien inicio la creacion puede confirmarla."

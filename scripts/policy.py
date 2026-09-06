@@ -29,7 +29,12 @@ import sys
 
 logger = logging.getLogger(__name__)
 
-POLICIES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "policies")
+_POLICIES_DIR_OVERRIDE = os.environ.get("POLICIES_DIR")
+POLICIES_DIR = (
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), _POLICIES_DIR_OVERRIDE)
+    if _POLICIES_DIR_OVERRIDE
+    else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "policies")
+)
 
 
 # ----------------------------------------------------------------------
@@ -224,11 +229,44 @@ def _pred_jira_estado_en(estados_validos, contexto):
     return ok, detalle
 
 
+def _pred_rate_limit_ok(_valor, contexto):
+    """El valor esperado ('true') es solo un marcador declarativo -- lo que
+    importa es contexto['rate_limitado'], que el llamador calcula ANTES de
+    pedir esta evaluacion (state.rate_limited(...) es stateful: registra el
+    hit ademas de chequearlo, asi que ese efecto de lado se queda en el bot,
+    no en el motor de politicas, que se mantiene puro)."""
+    limitado = bool(contexto.get("rate_limitado", False))
+    ok = not limitado
+    detalle = [] if ok else [{"rate_limitado": True}]
+    return ok, detalle
+
+
+def _pred_canal_es(canal_permitido, contexto):
+    canal_actual = contexto.get("canal_actual")
+    ok = canal_actual == canal_permitido
+    detalle = [] if ok else [{"canal_actual": canal_actual, "canal_permitido": canal_permitido}]
+    return ok, detalle
+
+
+def _pred_mismo_usuario(_valor, contexto):
+    """Idem rate_limit_ok: el valor 'true' es un marcador. La comparacion
+    real es usuario_actual (quien aprieta confirmar/cancelar) contra
+    usuario_inicio (quien disparo /crear-ticket)."""
+    usuario_actual = contexto.get("usuario_actual")
+    usuario_inicio = contexto.get("usuario_inicio")
+    ok = usuario_actual == usuario_inicio
+    detalle = [] if ok else [{"usuario_actual": usuario_actual, "usuario_inicio": usuario_inicio}]
+    return ok, detalle
+
+
 PREDICADOS = {
     "archivos_dentro_de": _pred_archivos_dentro_de,
     "archivos_fuera_de": _pred_archivos_fuera_de,
     "rama_es": _pred_rama_es,
     "jira_estado_en": _pred_jira_estado_en,
+    "rate_limit_ok": _pred_rate_limit_ok,
+    "canal_es": _pred_canal_es,
+    "mismo_usuario": _pred_mismo_usuario,
 }
 
 
@@ -250,11 +288,18 @@ class Decision:
         return f"<Decision politica={self.politica} enforcement={self.enforcement} {estado}>"
 
 
-def evaluar(nombre_politica, contexto):
+def evaluar(nombre_politica, contexto, reglas=None):
     """Carga policies/<nombre_politica>.yml y evalua cada regla contra
     contexto. Nunca lanza excepcion por una regla individual mal formada --
     la registra como violacion con detalle, para que un typo en la politica
-    sea visible en vez de tumbar silenciosamente el pipeline."""
+    sea visible en vez de tumbar silenciosamente el pipeline.
+
+    'reglas' (opcional): lista de ids de reglas a evaluar. Si se omite, se
+    evaluan todas las reglas de la politica (comportamiento de Fase 1/2).
+    Existe porque bot-policy tiene reglas que aplican en distintos puntos del
+    flujo del bot (ej: 'sin-rate-limit' en cada mensaje, 'canal-autorizado'
+    solo al iniciar /crear-ticket, 'confirmado-por-mismo-usuario' solo al
+    confirmar) -- no siempre tiene sentido evaluarlas todas juntas."""
     path = os.path.join(POLICIES_DIR, f"{nombre_politica}.yml")
     politica = cargar_yaml_simple(path)
     enforcement = politica.get("enforcement", "advisory")
@@ -262,6 +307,8 @@ def evaluar(nombre_politica, contexto):
 
     for regla in politica.get("rules", []):
         regla_id = regla.get("id", "(sin id)")
+        if reglas is not None and regla_id not in reglas:
+            continue
         require = regla.get("require", {}) or {}
         mensaje = (regla.get("on_fail", {}) or {}).get("mensaje", "regla incumplida")
 
@@ -311,6 +358,7 @@ def _main_cli():
     parser = argparse.ArgumentParser(description="Evalua una politica declarativa de policies/*.yml contra un contexto.")
     parser.add_argument("--politica", required=True, help="Nombre del archivo en policies/ (sin .yml)")
     parser.add_argument("--contexto", required=True, help="Contexto en JSON, ej: '{\"rama\": \"main\"}'")
+    parser.add_argument("--reglas", required=False, default=None, help="Lista de ids de regla separados por coma (default: todas)")
     args = parser.parse_args()
 
     try:
@@ -319,7 +367,8 @@ def _main_cli():
         print(f"❌ --contexto no es JSON valido: {e}")
         sys.exit(1)
 
-    decision = evaluar(args.politica, contexto)
+    reglas = [r.strip() for r in args.reglas.split(",")] if args.reglas else None
+    decision = evaluar(args.politica, contexto, reglas=reglas)
 
     if decision.permitido:
         print(f"✅ {args.politica}: OK")
