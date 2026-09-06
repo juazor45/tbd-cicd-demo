@@ -1,0 +1,31 @@
+# deploy-policy — Fase 2 de policy as code.
+#
+# Formaliza las dos guardas que hoy viven como condicionales sueltos dentro
+# de cicd-cert.yml: que CICD-CERT solo corra desde main, y que el ticket
+# este en el estado de Jira correcto antes de promoverlo a certificacion.
+# El contexto (rama, jira_estado) lo arma el propio workflow -- este archivo
+# solo declara la regla.
+#
+# Nota de formato: policy.py NO soporta bloques folded ('>'/'|') ni listas
+# en linea ('[a, b]') -- su parser minimo solo entiende mapas/listas por
+# indentacion (ver README, seccion "Policy as code"). Por eso el mensaje va
+# en una sola linea entre comillas, y la lista de estados va en formato
+# bloque, con un '-' por item.
+
+policy: deploy-policy
+version: 1
+enforcement: blocking
+
+rules:
+  - id: rama-permitida
+    require:
+      rama_es: main
+    on_fail:
+      mensaje: "CICD-CERT solo puede ejecutarse desde 'main'. Rama recibida: {rama}. El codigo debe integrarse al trunk via Pull Request (con CI y validado-en-dev) antes de certificar."
+  - id: estado-jira-requerido
+    require:
+      jira_estado_en:
+        - "Construcción Done"
+        - "Congelamiento Doing"
+    on_fail:
+      mensaje: "Para promover a CERT el ticket debe estar en 'Construcción Done' (esta en '{jira_estado}'). Abortando."
