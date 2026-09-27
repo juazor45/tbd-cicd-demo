@@ -35,12 +35,26 @@ jobs:
       - name: Apagar Container App(s)
         run: |
           az extension add --name containerapp --upgrade -y >/dev/null 2>&1
+          # NOTA: Azure Container Apps no permite --max-replicas 0 (rango
+          # valido: [1,1000]) -- "az containerapp update --max-replicas 0"
+          # falla con "ERROR: --max-replicas must be in the range [1,1000]".
+          # La forma correcta de garantizar 0 replicas (app inalcanzable,
+          # costo $0) es desactivar la revision activa. No hace falta tocar
+          # azure-encender.yml: "az containerapp update" (lo que ya hace
+          # encender_app) crea y activa una revision nueva sola, sin
+          # importar que la anterior haya quedado desactivada.
           apagar_app () {
             local NOMBRE="$1"
-            echo "🔻 Apagando $NOMBRE (max-replicas 0)..."
-            az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$NOMBRE" \
-              --min-replicas 0 --max-replicas 0
-            echo "✅ $NOMBRE apagada. Mientras esté así, su costo es $0."
+            local REV
+            REV=$(az containerapp revision list -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$NOMBRE" \
+              --query "[?properties.active].name" -o tsv | head -n1)
+            if [ -z "$REV" ]; then
+              echo "✅ $NOMBRE ya estaba apagada (sin revisión activa)."
+              return
+            fi
+            echo "🔻 Apagando $NOMBRE (desactivando la revisión activa: $REV)..."
+            az containerapp revision deactivate -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$NOMBRE" --revision "$REV"
+            echo "✅ $NOMBRE apagada (revisión desactivada -- 0 réplicas garantizadas). Mientras esté así, su costo es $0."
           }
           if [ "${{ inputs.entorno }}" = "dev" ] || [ "${{ inputs.entorno }}" = "ambas" ]; then
             apagar_app "${{ vars.AZURE_APP_DEV }}"
