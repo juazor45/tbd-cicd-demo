@@ -1,0 +1,20 @@
+# deploy-readiness — Fase 3 del SDLC agentico: agente en modo sombra.
+#
+# Antes de correr CICD-CERT, cruza Jira, el historial de pipelines, el spec
+# del ticket y deploy-policy.yml para dar un veredicto de lectura, con
+# criterio mas amplio que el chequeo determinista de deploy-policy (rama +
+# estado exacto de Jira). Corre desde cicd-cert.yml pero SOLO queda en el
+# log de agent_log (Fase 2) -- no comenta, no bloquea, no se le muestra a
+# nadie todavia. El objetivo de esta fase es juntar veredictos de
+# certificaciones reales y medir su precision antes de decidir si vale la
+# pena mostrarlo (Fase 4).
+
+id: deploy-readiness
+owner: juan.zorrilla
+proposito: "Evaluar en modo sombra si un ticket esta listo para certificar, antes de CICD-CERT"
+tools_permitidas:
+  - evaluar_readiness
+nivel_autonomia: L1
+modo_hitl: shadow
+canal_autorizado: "step de cicd-cert.yml (log-only, sin salida visible)"
+rate_limit: "uno por corrida de CICD-CERT"
