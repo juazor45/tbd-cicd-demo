@@ -89,11 +89,13 @@ def nivel_autonomia_de(agente_id):
     return manifest_de(agente_id)["nivel_autonomia"]
 
 
-# Tools que un manifest puede declarar sin que vivan en tools.py -- por ahora,
-# solo evaluar_readiness (scripts/deploy_readiness.py, Fase 3). Se suman aca
-# en vez de en tools.py porque no son parte del loop conversacional generico:
-# corren desde un step puntual de un workflow, con su propio script.
-OTRAS_TOOLS_CONOCIDAS = {"evaluar_readiness"}
+# Tools que un manifest puede declarar sin que vivan en tools.py: cada una
+# corre desde su propio script, disparado por un workflow puntual, no desde
+# el loop conversacional generico -- por eso no tiene sentido sumarlas a
+# tools.py.
+#   evaluar_readiness -- scripts/deploy_readiness.py (Fase 3/4)
+#   rerun_job         -- scripts/flaky_rerun_pilot.py (Fase 5)
+OTRAS_TOOLS_CONOCIDAS = {"evaluar_readiness", "rerun_job"}
 
 
 def validar_registro():

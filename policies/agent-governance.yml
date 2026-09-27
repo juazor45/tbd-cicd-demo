@@ -1,0 +1,80 @@
+# agent-governance — Fase 5 de policy as code: guardrail del piloto de
+# autonomia L3.
+#
+# Unica fase del SDLC agentico donde un agente EJECUTA una accion en vez de
+# solo leer o informar -- por eso el alcance es deliberadamente angosto: UNA
+# sola accion candidata (re-disparar los jobs fallidos de una corrida de
+# CI-PR o CICD-DEV cuando hay evidencia de que el fallo es flaky), nunca un
+# deploy. Ver agents/flaky-rerun-pilot.yml para el manifest del agente y
+# scripts/flaky_rerun_pilot.py para la implementacion.
+#
+# Cada regla de abajo es una barrera independiente -- las seis tienen que
+# pasar para que se dispare el rerun:
+#   1) agente-autorizado / accion-autorizada: solo este agente, solo esta accion
+#   2) workflow-autorizado: nunca CICD-CERT (ahi corre deploy-readiness, que
+#      SOLO lee, nunca ejecuta -- ver agents/deploy-readiness.yml)
+#   3) solo-jobs-de-test: si algun job fallido no es de testing (ej. el job
+#      "cd" que hace el deploy a Azure Container Apps), no se re-dispara nada
+#   4) dentro-del-limite-de-reintentos: maximo un reintento automatico por
+#      run (max_reintentos_por_run abajo) -- si tambien falla, se detiene y
+#      queda en manos de una persona
+#   5) evidencia-de-flaky: el job fallido tiene que haber pasado antes en la
+#      misma rama -- si nunca paso, puede ser un bug real, no se toca
+#
+# "notificar_siempre" y "rollback_automatico" no son reglas del motor de PDP
+# (no son un si/no contra un contexto) -- son parametros que
+# scripts/flaky_rerun_pilot.py lee directo de este archivo:
+#   - notificar_siempre: el resultado (se re-disparo o no, y por que) SIEMPRE
+#     se comunica, como comentario en el PR asociado o, si no hay PR, en el
+#     resumen del job -- nunca corre en silencio
+#   - rollback_automatico: esta accion en si no tiene estado propio que
+#     revertir (re-disparar un job no tiene efectos secundarios), asi que el
+#     guardrail equivalente es no reintentar mas de una vez y devolver
+#     siempre la decision a una persona si algo no encaja
+#
+# Nota de formato: mismo parser minimo que el resto de policies/*.yml (ver
+# deploy-policy.yml) -- sin bloques folded ni listas en linea.
+
+policy: agent-governance
+version: 1
+enforcement: blocking
+
+max_reintentos_por_run: 1
+notificar_siempre: true
+rollback_automatico: true
+
+rules:
+  - id: agente-autorizado
+    require:
+      agente_en:
+        - flaky-rerun-pilot
+    on_fail:
+      mensaje: "El agente '{agente_id}' no esta autorizado para ejecutar acciones (ver policies/agent-governance.yml)."
+  - id: accion-autorizada
+    require:
+      accion_en:
+        - rerun_job
+    on_fail:
+      mensaje: "La accion '{accion}' no esta en la lista de acciones que un agente puede ejecutar."
+  - id: workflow-autorizado
+    require:
+      workflow_en:
+        - CI-PR
+        - CICD-DEV
+    on_fail:
+      mensaje: "El workflow '{workflow}' no esta autorizado para rerun automatico (nunca CICD-CERT)."
+  - id: solo-jobs-de-test
+    require:
+      todos_los_fallidos_son_ci: true
+    on_fail:
+      mensaje: "Al menos uno de los jobs fallidos no es de testing (podria ser el job de deploy) -- no se re-dispara nada automaticamente."
+  - id: dentro-del-limite-de-reintentos
+    require:
+      reintentos_dentro_del_limite: true
+    on_fail:
+      mensaje: "Ya se alcanzo el limite de reintentos automaticos para este run. Requiere intervencion humana."
+  - id: evidencia-de-flaky
+    require:
+      job_paso_antes: true
+    on_fail:
+      mensaje: "El job fallido no tiene una corrida exitosa previa en la misma rama -- puede ser un fallo real, no flaky. No se re-dispara automaticamente."

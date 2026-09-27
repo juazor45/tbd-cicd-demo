@@ -1,0 +1,23 @@
+# flaky-rerun-pilot — Fase 5 del SDLC agentico: piloto de autonomia L3.
+#
+# UNICO agente de este registro que EJECUTA una accion (no solo lee o
+# informa): re-dispara los jobs fallidos de una corrida de CI-PR o CICD-DEV
+# cuando hay evidencia de que el fallo es flaky. Corre desde su propio
+# workflow (.github/workflows/agent-flaky-rerun.yml), disparado por
+# workflow_run cuando CI-PR o CICD-DEV terminan en failure -- no modifica
+# esos workflows.
+#
+# Todo el guardrail (agentes/acciones/workflows autorizados, limite de
+# reintentos, evidencia de flaky, nunca tocar un job de deploy) vive en
+# policies/agent-governance.yml -- este manifest solo declara que el agente
+# existe y que tool tiene permitida, igual que el resto del registro.
+
+id: flaky-rerun-pilot
+owner: juan.zorrilla
+proposito: "Re-disparar automaticamente los jobs fallidos de CI-PR/CICD-DEV cuando hay evidencia de que el fallo es flaky, nunca un deploy"
+tools_permitidas:
+  - rerun_job
+nivel_autonomia: L3
+modo_hitl: approval-after
+canal_autorizado: "workflow_run de CI-PR/CICD-DEV -- comentario en el PR o step summary del propio run (ver policies/agent-governance.yml)"
+rate_limit: "1 reintento automatico por run (ver policies/agent-governance.yml: max_reintentos_por_run)"

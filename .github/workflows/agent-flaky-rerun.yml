@@ -1,0 +1,63 @@
+name: Agent · Flaky Rerun Pilot
+
+# Fase 5 del SDLC agentico: piloto de autonomia L3 -- el unico agente de
+# este repo que EJECUTA una accion en vez de solo leer o informar. Ver
+# agents/flaky-rerun-pilot.yml (manifest) y policies/agent-governance.yml
+# (el guardrail completo).
+#
+# Escucha cuando CI-PR o CICD-DEV terminan en failure. Si el job que fallo
+# ya habia pasado antes en la misma rama (evidencia de que es flaky, no un
+# bug real), el guardrail lo permite, y ningun job de deploy esta entre los
+# fallidos, vuelve a disparar solo los jobs fallidos -- nunca hace nada mas,
+# y nunca mas de una vez por run. Siempre notifica el resultado (haya o no
+# re-disparado) como comentario en el PR asociado, o en el resumen del job
+# si no hay PR.
+#
+# Corre en su propio workflow via workflow_run -- NO modifica ci-pr.yml ni
+# cicd-dev.yml. Por seguridad (workflow_run corre con los secrets del repo
+# base, no con el codigo de un PR externo), usa el checkout por defecto:
+# siempre el codigo de la rama por defecto, nunca el del PR que disparo la
+# corrida original.
+
+on:
+  workflow_run:
+    workflows: ["CI-PR", "CICD-DEV"]
+    types: [completed]
+
+permissions:
+  actions: write
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: flaky-rerun-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  evaluar-y-rerun:
+    if: github.event.workflow_run.conclusion == 'failure'
+    name: Evaluar guardrail y re-disparar si corresponde
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Flaky Rerun Pilot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          AGENT_LOG_FILE: ${{ github.workspace }}/agent-log.jsonl
+        run: |
+          python3 scripts/flaky_rerun_pilot.py \
+            "${{ github.event.workflow_run.id }}" \
+            "${{ github.event.workflow_run.name }}"
+
+      - name: Subir agent-log.jsonl (evidencia del piloto)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flaky-rerun-log-${{ github.event.workflow_run.id }}
+          path: agent-log.jsonl
+          if-no-files-found: ignore
+          retention-days: 30
