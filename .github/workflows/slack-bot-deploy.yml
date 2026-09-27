@@ -57,17 +57,25 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Cargar ANTHROPIC_API_KEY / JIRA_* como secretos del Container App
+      - name: Cargar ANTHROPIC_API_KEY / JIRA_* / ASSISTANT_GH_TOKEN como secretos del Container App
         # Reusa los mismos Secrets que ya tiene el repo para
         # spec-review.yml/cicd-cert.yml -- no hace falta cargarlos de nuevo
         # a mano. az containerapp secret set solo agrega/actualiza estos
-        # cuatro; no toca slack-bot-token/slack-app-token, que ya viven ahi
+        # cinco; no toca slack-bot-token/slack-app-token, que ya viven ahi
         # desde setup-azure-slack-bot.sh.
+        #
+        # ASSISTANT_GH_TOKEN es un fine-grained PAT de solo lectura (permiso
+        # "Actions: Read-only") que se mapea a la variable GITHUB_TOKEN del
+        # Container App. Hace falta porque descargar el log de un job
+        # (GET /actions/jobs/{id}/logs, usado por analizar_error_pipeline)
+        # exige un token autenticado siempre, aunque el repo sea publico --
+        # a diferencia de listar runs/jobs, que si funciona sin token.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          ASSISTANT_GH_TOKEN: ${{ secrets.ASSISTANT_GH_TOKEN }}
         run: |
           az extension add --name containerapp --upgrade -y >/dev/null 2>&1
           az containerapp secret set \
@@ -78,6 +86,7 @@ jobs:
               "jira-base-url=$JIRA_BASE_URL" \
               "jira-email=$JIRA_EMAIL" \
               "jira-api-token=$JIRA_API_TOKEN" \
+              "assistant-gh-token=$ASSISTANT_GH_TOKEN" \
             >/dev/null
           echo "🔐 Secretos actualizados"
 
@@ -94,6 +103,7 @@ jobs:
               "JIRA_BASE_URL=secretref:jira-base-url" \
               "JIRA_EMAIL=secretref:jira-email" \
               "JIRA_API_TOKEN=secretref:jira-api-token" \
+              "GITHUB_TOKEN=secretref:assistant-gh-token" \
               "GITHUB_REPO=${{ github.repository }}" \
               "JIRA_PROJECT_KEY=${{ vars.JIRA_PROJECT_KEY }}" \
               "JIRA_TICKET_CHANNEL_ID=${{ vars.JIRA_TICKET_CHANNEL_ID }}"

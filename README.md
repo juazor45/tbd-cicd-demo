@@ -458,7 +458,9 @@ Si aparece **"No se encuentra esta aplicación"** al subir el `.zip`, es porque 
 
 ### Secrets del repositorio (Actions)
 
-`JIRA_BASE_URL` · `JIRA_EMAIL` · `JIRA_API_TOKEN` · `ANTHROPIC_API_KEY` · `DASHBOARD_BOT_TOKEN`
+`JIRA_BASE_URL` · `JIRA_EMAIL` · `JIRA_API_TOKEN` · `ANTHROPIC_API_KEY` · `DASHBOARD_BOT_TOKEN` · `ASSISTANT_GH_TOKEN`
+
+`ASSISTANT_GH_TOKEN` es un fine-grained PAT de solo lectura (permiso "Actions: Read-only") que usa el asistente (vía el bot de Slack) para bajar el log real de un job fallido en `analizar_error_pipeline` -- listar runs/jobs funciona sin token en repos públicos, pero descargar el log de un job siempre exige uno autenticado.
 
 `DASHBOARD_BOT_TOKEN` es un PAT (classic, scope `repo`) de un admin del repositorio. `dashboard.yml` commitea `docs/dashboard.md` y `docs/dashboard.html` directo a `main`, y el ruleset bloquea eso salvo que venga de un actor en su bypass list. Con el `GITHUB_TOKEN` por defecto el push queda rechazado (`GH013`) porque `github-actions[bot]` no cuenta como admin. Dos pasos únicos para habilitarlo:
 
@@ -473,6 +475,7 @@ export JIRA_BASE_URL="https://tusitio.atlassian.net"
 export JIRA_EMAIL="tu-correo"
 export JIRA_API_TOKEN="tu-token"
 export GITHUB_REPO="$GITHUB_REPOSITORY"
+export GITHUB_TOKEN="tu-pat-de-solo-lectura-actions"   # opcional en repos públicos, salvo para analizar_error_pipeline
 export SLACK_BOT_TOKEN="xoxb-..."   # solo para el bot
 export SLACK_APP_TOKEN="xapp-..."   # solo para el bot
 export JIRA_TICKET_CHANNEL_ID="C0123456"   # opcional: habilita /crear-ticket, solo en este canal
@@ -524,7 +527,7 @@ Este script es el único lugar donde los tokens de Slack tocan Azure: los carga 
 
 ### Desplegar el código del bot
 
-**Actions → Slack Bot - Deploy → Run workflow** (o hacé push a `main` tocando `scripts/slack_bot.py` y disparadores similares -- ver los `paths` del workflow). Construye la imagen (`Dockerfile.slack-bot`) y la publica en GHCR, configura `ANTHROPIC_API_KEY`/`JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` como secretos del Container App reutilizando los mismos Secrets que ya usa `spec-review.yml`/`cicd-cert.yml` (no hace falta cargarlos de nuevo), y actualiza el Container App con la imagen nueva. `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` nunca pasan por este workflow -- ya están en el Container App desde el paso anterior, y este los referencia por nombre (`secretref:...`) sin conocer su valor.
+**Actions → Slack Bot - Deploy → Run workflow** (o hacé push a `main` tocando `scripts/slack_bot.py` y disparadores similares -- ver los `paths` del workflow). Construye la imagen (`Dockerfile.slack-bot`) y la publica en GHCR, configura `ANTHROPIC_API_KEY`/`JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` como secretos del Container App reutilizando los mismos Secrets que ya usa `spec-review.yml`/`cicd-cert.yml` (no hace falta cargarlos de nuevo), agrega `ASSISTANT_GH_TOKEN` (mapeado a la variable `GITHUB_TOKEN` del Container App, para que `analizar_error_pipeline` pueda leer logs reales), y actualiza el Container App con la imagen nueva. `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` nunca pasan por este workflow -- ya están en el Container App desde el paso anterior, y este los referencia por nombre (`secretref:...`) sin conocer su valor.
 
 Mismo paso manual que en la sección 7: la primera vez, marcá el paquete `slack-bot` como público en GitHub (**Packages → slack-bot → Package settings → Change visibility → Public**) para que Azure Container Apps pueda hacer *pull* de la imagen.
 
