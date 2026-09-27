@@ -259,6 +259,53 @@ def _pred_mismo_usuario(_valor, contexto):
     return ok, detalle
 
 
+# ----------------------------------------------------------------------
+# Predicados de agent-governance.yml (Fase 5: piloto de autonomia L3) --
+# mismo criterio que arriba: se suman al registro sin tocar el motor.
+# ----------------------------------------------------------------------
+def _fabrica_pred_en(campo_contexto):
+    """Genera un predicado '<campo>_en': ok si contexto[campo_contexto] esta
+    en la lista declarada en la regla. Evita repetir la misma logica para
+    agente_en/accion_en/workflow_en (son el mismo chequeo de pertenencia,
+    solo cambia que campo del contexto miran)."""
+    def _pred(valores_validos, contexto):
+        valores_validos = valores_validos or []
+        actual = contexto.get(campo_contexto)
+        ok = actual in valores_validos
+        detalle = [] if ok else [{campo_contexto: actual, "esperados": valores_validos}]
+        return ok, detalle
+    return _pred
+
+
+def _pred_reintentos_dentro_del_limite(_valor, contexto):
+    """Marcador declarativo (igual que rate_limit_ok/mismo_usuario): quien
+    llama ya calculo el booleano comparando intentos_previos contra
+    max_reintentos_por_run -- este predicado solo lo consume."""
+    ok = bool(contexto.get("reintentos_dentro_del_limite", False))
+    detalle = [] if ok else [{
+        "intentos_previos": contexto.get("intentos_previos"),
+        "max_reintentos_por_run": contexto.get("max_reintentos_por_run"),
+    }]
+    return ok, detalle
+
+
+def _pred_job_paso_antes(_valor, contexto):
+    """Marcador declarativo: True si alguno de los jobs fallidos tuvo una
+    corrida exitosa antes en la misma rama (evidencia de que es flaky)."""
+    ok = bool(contexto.get("job_paso_antes", False))
+    detalle = [] if ok else [{"jobs_fallidos": contexto.get("jobs_fallidos_nombres")}]
+    return ok, detalle
+
+
+def _pred_todos_los_fallidos_son_ci(_valor, contexto):
+    """Marcador declarativo: True solo si TODOS los jobs fallidos son de
+    testing (nombre que arranca con 'CI') -- si el job 'cd' (deploy a Azure)
+    aparece entre los fallidos, esto da False y la regla bloquea el rerun."""
+    ok = bool(contexto.get("todos_los_fallidos_son_ci", False))
+    detalle = [] if ok else [{"jobs_fallidos": contexto.get("jobs_fallidos_nombres")}]
+    return ok, detalle
+
+
 PREDICADOS = {
     "archivos_dentro_de": _pred_archivos_dentro_de,
     "archivos_fuera_de": _pred_archivos_fuera_de,
@@ -267,6 +314,12 @@ PREDICADOS = {
     "rate_limit_ok": _pred_rate_limit_ok,
     "canal_es": _pred_canal_es,
     "mismo_usuario": _pred_mismo_usuario,
+    "agente_en": _fabrica_pred_en("agente_id"),
+    "accion_en": _fabrica_pred_en("accion"),
+    "workflow_en": _fabrica_pred_en("workflow"),
+    "reintentos_dentro_del_limite": _pred_reintentos_dentro_del_limite,
+    "job_paso_antes": _pred_job_paso_antes,
+    "todos_los_fallidos_son_ci": _pred_todos_los_fallidos_son_ci,
 }
 
 
