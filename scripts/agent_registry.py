@@ -89,11 +89,19 @@ def nivel_autonomia_de(agente_id):
     return manifest_de(agente_id)["nivel_autonomia"]
 
 
+# Tools que un manifest puede declarar sin que vivan en tools.py -- por ahora,
+# solo evaluar_readiness (scripts/deploy_readiness.py, Fase 3). Se suman aca
+# en vez de en tools.py porque no son parte del loop conversacional generico:
+# corren desde un step puntual de un workflow, con su propio script.
+OTRAS_TOOLS_CONOCIDAS = {"evaluar_readiness"}
+
+
 def validar_registro():
     """Chequeo de consistencia: cada tool listada en cada manifest debe
     existir de verdad en tools.py (TOOL_FUNCTIONS, o las tools de escritura
-    que quedan fuera de TOOL_FUNCTIONS a proposito). Pensado para correr en
-    CI (ci-pr.yml) apenas cambie algo en agents/*.yml o en tools.py, para
+    que quedan fuera de TOOL_FUNCTIONS a proposito), o en OTRAS_TOOLS_CONOCIDAS
+    para agentes con script propio (ver deploy-readiness). Pensado para correr
+    en CI (ci-pr.yml) apenas cambie algo en agents/*.yml o en tools.py, para
     agarrar un typo o una tool renombrada antes de que llegue a produccion.
 
     Devuelve una lista de problemas (vacia si todo esta bien) -- no lanza
@@ -101,9 +109,11 @@ def validar_registro():
     (mismo criterio advisory/blocking que el resto de policy as code)."""
     import tools as tools_mod
 
-    tools_conocidas = set(tools_mod.TOOL_FUNCTIONS) | {
-        "crear_ticket", "comentar_ticket", "listar_tipos_issue",
-    }
+    tools_conocidas = (
+        set(tools_mod.TOOL_FUNCTIONS)
+        | {"crear_ticket", "comentar_ticket", "listar_tipos_issue"}
+        | OTRAS_TOOLS_CONOCIDAS
+    )
 
     problemas = []
     for agente_id in agentes_declarados():
