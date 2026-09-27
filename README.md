@@ -388,6 +388,8 @@ Aunque Container Apps ya escala a 0 sola cuando no hay tráfico, para tener cont
 
 Ambos corren desde **Actions → (el workflow) → Run workflow**, eligiendo `dev`, `cert` o `ambas`.
 
+**Opción `slack`**: además de `dev`/`cert`/`ambas`, ambos workflows aceptan `slack` para apagar/encender el [bot de Slack en Azure](#9-bot-de-slack-en-azure-container-apps-siempre-disponible) por separado (no está incluido en `ambas`, que sigue significando solo dev + cert). Es un caso distinto porque el bot usa Socket Mode (conexión saliente permanente, sin tráfico HTTP entrante) y por eso no puede escalar a 0 solo: "apagar" fuerza `max-replicas 0` igual que las otras apps, pero "encender" fija `min-replicas 1` (no `0`) para que la conexión se mantenga viva, y como no tiene ingress no hay URL que mostrar -- el workflow imprime el comando `az containerapp logs show --follow` para confirmar que reconectó a Slack.
+
 ---
 
 ## 8. Bot de Microsoft Teams (Azure Bot Service + Functions)

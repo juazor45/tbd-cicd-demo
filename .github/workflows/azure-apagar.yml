@@ -5,12 +5,13 @@ on:
   workflow_dispatch:
     inputs:
       entorno:
-        description: 'Qué Container App apagar'
+        description: 'Qué Container App apagar (slack = bot de Slack; ambas = dev + cert)'
         required: true
         type: choice
         options:
           - dev
           - cert
+          - slack
           - ambas
 
 permissions:
@@ -46,4 +47,12 @@ jobs:
           fi
           if [ "${{ inputs.entorno }}" = "cert" ] || [ "${{ inputs.entorno }}" = "ambas" ]; then
             apagar_app "${{ vars.AZURE_APP_CERT }}"
+          fi
+          # "slack" queda fuera de "ambas" a propósito: es un servicio
+          # distinto (el bot, no ms-exchange-rate), así que "ambas" sigue
+          # significando "dev + cert" como siempre -- apagarlo es una
+          # elección aparte. apagar_app le sirve tal cual (min=0 max=0 apaga
+          # cualquier Container App, tenga o no ingress).
+          if [ "${{ inputs.entorno }}" = "slack" ]; then
+            apagar_app "${{ vars.AZURE_APP_SLACK }}"
           fi

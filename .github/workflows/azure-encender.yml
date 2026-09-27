@@ -5,12 +5,13 @@ on:
   workflow_dispatch:
     inputs:
       entorno:
-        description: 'Qué Container App encender'
+        description: 'Qué Container App encender (slack = bot de Slack; ambas = dev + cert)'
         required: true
         type: choice
         options:
           - dev
           - cert
+          - slack
           - ambas
 
 permissions:
@@ -47,4 +48,18 @@ jobs:
           fi
           if [ "${{ inputs.entorno }}" = "cert" ] || [ "${{ inputs.entorno }}" = "ambas" ]; then
             encender_app "${{ vars.AZURE_APP_CERT }}"
+          fi
+          # El bot de Slack NO usa encender_app: esa función deja
+          # min-replicas en 0 (para que dev/cert escalen a 0 solas sin
+          # tráfico HTTP). El bot no tiene tráfico HTTP -- usa Socket Mode,
+          # una conexión saliente permanente -- así que con min=0 se
+          # apagaría solo enseguida. Necesita min=1 fijo. Tampoco tiene
+          # ingress, así que no hay FQDN que mostrar; en su lugar, el
+          # siguiente paso indica cómo confirmar que levantó.
+          if [ "${{ inputs.entorno }}" = "slack" ]; then
+            echo "🔺 Encendiendo ${{ vars.AZURE_APP_SLACK }} (min-replicas 1 -- Socket Mode no escala a 0)..."
+            az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.AZURE_APP_SLACK }}" \
+              --min-replicas 1 --max-replicas 1
+            echo "✅ ${{ vars.AZURE_APP_SLACK }} encendida (sin ingress -- no tiene URL pública). Confirmá que conectó con:"
+            echo "   az containerapp logs show -g ${{ vars.AZURE_RESOURCE_GROUP }} -n ${{ vars.AZURE_APP_SLACK }} --follow --tail 20"
           fi
