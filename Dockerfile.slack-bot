@@ -24,7 +24,15 @@ COPY scripts/ ./scripts/
 COPY policies/ ./policies/
 COPY specs/ ./specs/
 
-RUN addgroup --system app && adduser --system --ingroup app app
+# El chown va ANTES de USER app: COPY deja todo /app como root, y
+# agent_log.py escribe agent-log.jsonl junto al script (ver su default en
+# AGENT_LOG_FILE) -- sin esto, ese write falla con "Permission denied" en
+# runtime (silencioso porque agent_log atrapa el error a proposito, pero
+# significa perder el log de decisiones del agente). No persiste entre
+# despliegues igual (Container Apps no tiene un volumen montado acá), pero
+# al menos queda escribible mientras el proceso corre.
+RUN addgroup --system app && adduser --system --ingroup app app \
+    && chown -R app:app /app
 USER app
 
 WORKDIR /app/scripts
