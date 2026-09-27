@@ -11,6 +11,10 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+// SCRUM-42: prueba integral del SDLC agentico completo (CI-PR -> CICD-DEV
+// -> merge -> CICD-CERT), incluyendo el Deploy Readiness Agent (Fase 4) y
+// el Flaky Rerun Pilot (Fase 5). Este comentario es el unico cambio real de
+// negocio de esta prueba -- no altera comportamiento.
 @Path("/api/v1/exchange-rates")
 @Produces(MediaType.APPLICATION_JSON)
 public class ExchangeRateResource {
