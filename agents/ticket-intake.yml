@@ -1,0 +1,19 @@
+# ticket-intake — unico agente de este registro con una tool de escritura.
+#
+# crear_ticket, comentar_ticket y listar_tipos_issue NO estan expuestas al
+# loop agentico por texto libre (ver el docstring de tools.py) -- solo las
+# llama el flujo /crear-ticket, despues de pasar por bot-policy.yml: canal
+# autorizado, confirmacion explicita de dos pasos, y que solo quien inicio
+# la creacion pueda confirmarla.
+
+id: ticket-intake
+owner: juan.zorrilla
+proposito: "Crear un ticket de Jira a partir de un formulario, con confirmacion humana explicita"
+tools_permitidas:
+  - crear_ticket
+  - comentar_ticket
+  - listar_tipos_issue
+nivel_autonomia: L2
+modo_hitl: approval-before
+canal_autorizado: "JIRA_TICKET_CHANNEL_ID / TEAMS_TICKET_CHANNEL_ID (ver bot-policy.yml)"
+rate_limit: "ver policies/bot-policy.yml (regla sin-rate-limit)"
