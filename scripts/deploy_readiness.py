@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-deploy_readiness.py — Deploy Readiness Agent (Fase 3 del SDLC agentico: modo sombra).
+deploy_readiness.py — Deploy Readiness Agent (Fase 4 del SDLC agentico: advisory visible).
 
 Antes de correr CICD-CERT, cruza Jira, el historial de pipelines, el spec del
 ticket y deploy-policy.yml, y le pide a Claude un veredicto de lectura sobre
@@ -11,18 +11,20 @@ de Jira, este agente puede razonar sobre matices (ej: "Jira dice Done pero el
 ultimo pipeline de DEV fallo", o "el spec pide un flag de feature que no
 aparece en el diff"). Ver agents/deploy-readiness.yml para el manifest.
 
-MODO SOMBRA (Fase 3): este script SOLO escribe su veredicto en agent-log.jsonl
-(via agent_log.instrumentar). No comenta en Jira, no comenta en el PR, no
-bloquea nada, no le muestra el resultado a nadie todavia. El objetivo es
-juntar veredictos de certificaciones reales y, mas adelante, comparar contra
-lo que efectivamente paso (Fase 4: advisory visible, solo si la precision es
-buena).
+ADVISORY VISIBLE (Fase 4): ademas de quedar en agent-log.jsonl (via
+agent_log.instrumentar, igual que en Fase 3), el veredicto se escribe en el
+resumen del job de GitHub Actions ($GITHUB_STEP_SUMMARY) -- visible para quien
+dispare o revise esa corrida de CICD-CERT. Sigue sin comentar en Jira, sin
+comentar en el PR y sin bloquear nada (el step que lo llama mantiene
+continue-on-error: true): es informacion para que una persona decida, no una
+aprobacion ni un bloqueo automatico.
 
 Uso (pensado para correr como step de cicd-cert.yml, con continue-on-error):
     python3 scripts/deploy_readiness.py <TICKET>
 """
 
 import logging
+import os
 import re
 import sys
 
@@ -109,16 +111,52 @@ def _evaluar_readiness_impl(ticket):
 evaluar_readiness = agent_log.instrumentar("evaluar_readiness", _evaluar_readiness_impl)
 
 
+_INSIGNIA = {
+    "LISTO": "\u2705 LISTO",
+    "NO_LISTO": "\u26a0\ufe0f NO\u00a0LISTO",
+    "ERROR": "\u2757 ERROR",
+}
+
+
+def _escribir_resumen(ticket, resultado):
+    """Escribe el veredicto en el resumen del job de GitHub Actions
+    ($GITHUB_STEP_SUMMARY), si esa variable existe (no esta seteada en una
+    corrida local, asi que ahi simplemente no hace nada). Puramente
+    informativo -- no escribe en ningun otro sistema (ver agents/deploy-readiness.yml
+    sobre por que no comenta en Jira)."""
+    resumen_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not resumen_path:
+        return
+
+    insignia = _INSIGNIA.get(resultado["veredicto"], resultado["veredicto"])
+    cuerpo = resultado["razonamiento"]
+
+    texto = (
+        f"### \U0001f9ed Deploy Readiness Agent -- {ticket}\n\n"
+        f"**Veredicto: {insignia}**\n\n"
+        f"{cuerpo}\n\n"
+        f"> Advisory -- no bloquea esta certificacion. El agente puede equivocarse; "
+        f"la decision final es de quien certifica. Detalle completo en agent-log.jsonl "
+        f"(artifact de este run).\n"
+    )
+    try:
+        with open(resumen_path, "a", encoding="utf-8") as f:
+            f.write(texto)
+    except OSError as e:
+        logger.warning("deploy_readiness: no se pudo escribir el resumen del job: %s", e)
+
+
 def main():
     if len(sys.argv) < 2:
         print("Uso: deploy_readiness.py <ticket>")
         sys.exit(1)
     ticket = sys.argv[1]
-    logger.info("deploy_readiness: evaluando %s (modo sombra -- Fase 3)", ticket)
+    logger.info("deploy_readiness: evaluando %s (advisory visible -- Fase 4)", ticket)
     resultado = evaluar_readiness(ticket)
+    _escribir_resumen(ticket, resultado)
     print(
-        f"ℹ️ Deploy Readiness Agent corrido en modo sombra para {ticket}: "
-        f"veredicto={resultado['veredicto']} (ver agent-log.jsonl, no se muestra en el resultado del job)"
+        f"\u2139\ufe0f Deploy Readiness Agent para {ticket}: "
+        f"veredicto={resultado['veredicto']} (ver el resumen del job y agent-log.jsonl)"
     )
 
 

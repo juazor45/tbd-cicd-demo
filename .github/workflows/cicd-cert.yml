@@ -63,14 +63,15 @@ jobs:
           CONTEXTO=$(jq -n --arg rama "${{ github.ref_name }}" --arg estado "$STATUS" '{rama: $rama, jira_estado: $estado}')
           python3 scripts/policy.py --politica deploy-policy --contexto "$CONTEXTO"
 
-      - name: Deploy Readiness Agent (Fase 3 -- modo sombra, no bloquea)
+      - name: Deploy Readiness Agent (Fase 4 -- advisory visible, no bloquea)
         # Corre en paralelo conceptual al chequeo deterministico de arriba,
-        # pero con criterio mas amplio (cruza Jira + pipelines + spec).
-        # continue-on-error: true a proposito -- en esta fase el agente NO
-        # debe poder romper una certificacion real. Su veredicto queda solo
-        # en agent-log.jsonl (ver el step "Subir agent-log.jsonl" al final
-        # de este job), para juntar evidencia y medir precision antes de
-        # decidir en Fase 4 si vale la pena mostrarlo. Ver agents/deploy-readiness.yml.
+        # pero con criterio mas amplio (cruza Jira + pipelines + spec). El
+        # veredicto se escribe en el resumen de este job (visible en el run
+        # de GitHub Actions) y ademas queda en agent-log.jsonl (ver el step
+        # "Subir agent-log.jsonl" al final de este job), para seguir
+        # midiendo precision ahora que el agente ya es visible.
+        # continue-on-error: true a proposito -- sigue siendo advisory, NO
+        # puede romper una certificacion real. Ver agents/deploy-readiness.yml.
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -184,10 +185,11 @@ jobs:
             echo "📋 $TICKET → 'Congelamiento Done' (artefacto RC listo, gates pasados)"
           fi
 
-      - name: Subir agent-log.jsonl (evidencia del Deploy Readiness Agent, Fase 3)
-        # Solo evidencia para medir precision mas adelante -- no se lee en
-        # ningun otro step. if-no-files-found: ignore porque el step de
-        # arriba tiene continue-on-error y puede no haber escrito nada.
+      - name: Subir agent-log.jsonl (evidencia del Deploy Readiness Agent)
+        # Se sigue subiendo aunque el veredicto ya sea visible (Fase 4):
+        # sirve para medir precision con datos reales ahora que el agente
+        # esta expuesto. if-no-files-found: ignore porque el step de arriba
+        # tiene continue-on-error y puede no haber escrito nada.
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
