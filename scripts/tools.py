@@ -27,6 +27,7 @@ import logging
 import os
 import re
 
+import agent_log
 import policy
 from http_client import age, gh_headers, http_get, http_post, jira_headers
 
@@ -379,6 +380,13 @@ def comentar_ticket(ticket, texto):
     return {"ok": True}
 
 
+# Instrumentadas igual que las tools del loop agentico (Fase 2: observabilidad)
+# -- mismo mecanismo aunque estas no esten expuestas al agente por texto libre.
+crear_ticket = agent_log.instrumentar("crear_ticket", crear_ticket)
+comentar_ticket = agent_log.instrumentar("comentar_ticket", comentar_ticket)
+listar_tipos_issue = agent_log.instrumentar("listar_tipos_issue", listar_tipos_issue)
+
+
 # ----------------------------------------------------------------------
 # Definiciones para la API de Anthropic
 # ----------------------------------------------------------------------
@@ -447,10 +455,13 @@ TOOL_SCHEMAS = [
 ]
 
 TOOL_FUNCTIONS = {
-    "consultar_jira": consultar_jira,
-    "consultar_pipelines": consultar_pipelines,
-    "detalle_ejecucion": detalle_ejecucion,
-    "consultar_proceso": consultar_proceso,
-    "consultar_spec": consultar_spec,
-    "consultar_politica": consultar_politica,
+    nombre: agent_log.instrumentar(nombre, funcion)
+    for nombre, funcion in {
+        "consultar_jira": consultar_jira,
+        "consultar_pipelines": consultar_pipelines,
+        "detalle_ejecucion": detalle_ejecucion,
+        "consultar_proceso": consultar_proceso,
+        "consultar_spec": consultar_spec,
+        "consultar_politica": consultar_politica,
+    }.items()
 }

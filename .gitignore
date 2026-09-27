@@ -6,3 +6,4 @@ target/
 .quarkus/
 __pycache__/
 *.pyc
+agent-log.jsonl
