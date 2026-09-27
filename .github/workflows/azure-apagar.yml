@@ -54,7 +54,7 @@ jobs:
             fi
             echo "🔻 Apagando $NOMBRE (desactivando la revisión activa: $REV)..."
             az containerapp revision deactivate -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$NOMBRE" --revision "$REV"
-            echo "✅ $NOMBRE apagada (revisión desactivada -- 0 réplicas garantizadas). Mientras esté así, su costo es $0."
+            echo "✅ $NOMBRE apagada (revisión desactivada -- 0 réplicas garantizadas). Mientras esté así, su costo es \$0."
           }
           if [ "${{ inputs.entorno }}" = "dev" ] || [ "${{ inputs.entorno }}" = "ambas" ]; then
             apagar_app "${{ vars.AZURE_APP_DEV }}"
