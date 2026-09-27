@@ -29,7 +29,7 @@ import re
 
 import agent_log
 import policy
-from http_client import age, gh_headers, http_get, http_post, jira_headers
+from http_client import age, gh_headers, http_get, http_get_text, http_post, jira_headers
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +210,93 @@ def detalle_ejecucion(run_id, repo=None):
         })
     logger.info("tool detalle_ejecucion(%s) OK: %s", run_id, punto or "sin pendientes")
     return {"run_id": run_id, "punto_actual": punto or "Ejecución finalizada sin pendientes", "jobs": jobs}
+
+
+MODEL_ANALISIS = "claude-sonnet-4-6"
+
+_ANALISIS_SYSTEM_PROMPT = """Sos un ingeniero de DevSecOps analizando el log de un job de CI/CD que falló.
+
+Se te pasa el final del log real del job (puede venir truncado -- el error casi
+siempre está sobre el final, cerca de donde el proceso terminó con código
+distinto de cero).
+
+Respondé siempre en español, breve (no más de 5-6 líneas):
+1. Una línea con la causa raíz más probable del error (concreta, no genérica).
+2. Una o dos líneas con una solución sugerida y accionable.
+
+Si el log no alcanza para diagnosticar con confianza, decilo explícitamente
+en vez de inventar una causa -- es preferible "no tengo evidencia suficiente
+en el log para esto" a una respuesta genérica poco útil."""
+
+
+def analizar_error_pipeline(run_id, repo=None):
+    """Diagnostica POR QUÉ falló un job (no solo en qué step, que ya devuelve
+    detalle_ejecucion): trae el log real del job fallido de GitHub Actions y
+    le pide a Claude la causa raíz y una solución sugerida.
+
+    Solo lectura -- no reintenta nada ni escribe en ningún lado (a diferencia
+    de flaky_rerun_pilot.py, que sí actúa). Si hay más de un job fallido,
+    analiza el PRIMERO que encuentra (mismo criterio que el 'punto_actual' de
+    detalle_ejecucion)."""
+    logger.info("tool analizar_error_pipeline(run_id=%s, repo=%s)", run_id, repo)
+    repo = repo or os.environ.get("GITHUB_REPO", "")
+    code, data = http_get(
+        f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/jobs", gh_headers()
+    )
+    if code != 200:
+        logger.warning("tool analizar_error_pipeline(%s) fallo leyendo jobs: HTTP %s", run_id, code)
+        return {"error": f"No se pudo leer el run {run_id} (HTTP {code})."}
+
+    job_fallido, step_fallido = None, None
+    for job in data.get("jobs", []):
+        for s in job.get("steps", []):
+            if s["conclusion"] == "failure":
+                job_fallido, step_fallido = job, s["name"]
+                break
+        if job_fallido:
+            break
+
+    if not job_fallido:
+        logger.info("tool analizar_error_pipeline(%s): sin jobs fallidos", run_id)
+        return {"run_id": run_id, "info": "Esta ejecución no tiene ningún job fallido -- no hay nada que diagnosticar."}
+
+    log_code, log_texto = http_get_text(
+        f"https://api.github.com/repos/{repo}/actions/jobs/{job_fallido['id']}/logs", gh_headers()
+    )
+    if log_code != 200 or not log_texto:
+        logger.warning(
+            "tool analizar_error_pipeline(%s): no se pudo leer el log del job %s (HTTP %s)",
+            run_id, job_fallido["id"], log_code,
+        )
+        return {
+            "run_id": run_id, "job": job_fallido["name"], "step": step_fallido,
+            "error": f"No se pudo leer el log del job (HTTP {log_code}). Revisá que GITHUB_TOKEN tenga permiso de lectura de Actions.",
+        }
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic()
+        resp = client.messages.create(
+            model=MODEL_ANALISIS,
+            max_tokens=300,
+            system=_ANALISIS_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": f"Job: {job_fallido['name']}\nStep fallido: {step_fallido}\n\nLOG:\n{log_texto}"}],
+        )
+        analisis = "".join(b.text for b in resp.content if b.type == "text")
+    except Exception as e:
+        logger.error("tool analizar_error_pipeline(%s): fallo llamando a Anthropic: %s", run_id, e)
+        return {
+            "run_id": run_id, "job": job_fallido["name"], "step": step_fallido,
+            "error": f"No se pudo generar el análisis ({type(e).__name__}: {e}). El step que falló fue '{step_fallido}'.",
+        }
+
+    logger.info("tool analizar_error_pipeline(%s) OK: job=%s step=%s", run_id, job_fallido["name"], step_fallido)
+    return {
+        "run_id": run_id,
+        "job": job_fallido["name"],
+        "step": step_fallido,
+        "analisis": analisis,
+    }
 
 
 # SPECS_DIR permite sobreescribir dónde vive specs/, relativo a este archivo.
@@ -426,6 +513,18 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "analizar_error_pipeline",
+        "description": "Diagnostica POR QUÉ falló un job de un pipeline: trae el log real del job (no solo su nombre/estado) y devuelve la causa raíz más probable y una solución sugerida. Úsala siempre que detalle_ejecucion muestre un step en estado 'failure' y quieras explicarle al usuario el error real, no solo dónde se quedó. Solo lectura -- no reintenta ni cambia nada.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "integer", "description": "ID del run de GitHub Actions (el mismo que usaste en detalle_ejecucion)"},
+                "repo": {"type": "string", "description": "Opcional, formato 'owner/repo'. Mismo criterio que detalle_ejecucion: pasalo si el run pertenece a otro repositorio."}
+            },
+            "required": ["run_id"],
+        },
+    },
+    {
         "name": "consultar_spec",
         "description": "Devuelve el spec declarado de un ticket (specs/<TICKET>.yml): que debe cambiar, que NO debe tocar, el contrato de API a preservar, y la evidencia requerida para considerarlo terminado. Usala cuando pregunten por el alcance, los limites o los criterios de aceptacion de un ticket. Si no existe el archivo, informa que el ticket no tiene spec declarado.",
         "input_schema": {
@@ -460,6 +559,7 @@ TOOL_FUNCTIONS = {
         "consultar_jira": consultar_jira,
         "consultar_pipelines": consultar_pipelines,
         "detalle_ejecucion": detalle_ejecucion,
+        "analizar_error_pipeline": analizar_error_pipeline,
         "consultar_proceso": consultar_proceso,
         "consultar_spec": consultar_spec,
         "consultar_politica": consultar_politica,

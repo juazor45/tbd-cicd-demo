@@ -204,6 +204,7 @@ Agente de IA que cruza tres fuentes para responder *¿dónde está mi release y 
 - `consultar_jira` — estado del ticket de cambio
 - `consultar_pipelines` — ejecuciones de los workflows, filtrables por ticket
 - `detalle_ejecucion` — jobs y steps: dónde falló, qué ejecuta o qué espera aprobación
+- `analizar_error_pipeline` — cuando un step falló de verdad, trae el log real del job (no solo el nombre del step) y le pide a Claude la causa raíz y una solución sugerida. Solo lectura -- no reintenta nada (para eso está el [Flaky Rerun Pilot](#fase-5)), es puramente diagnóstico y conversacional
 - `consultar_proceso` — el template con fases, criterios y siguiente paso
 - `consultar_spec` — el contrato del ticket: qué debe cambiar, qué no debe tocarse, evidencia requerida
 - `consultar_politica` — el contenido de una política de [policy as code](#policy-as-code) (`policies/*.yml`): sus reglas, enforcement y mensajes, para explicar qué controla el pipeline o los bots
