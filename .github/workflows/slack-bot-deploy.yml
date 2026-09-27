@@ -1,0 +1,105 @@
+name: Slack Bot - Deploy
+run-name: Slack Bot Deploy
+
+# Build + push de la imagen del bot de Slack a GHCR, y actualiza el
+# Container App con esa imagen y sus variables de entorno. Requiere que el
+# Container App ya exista -- ver scripts/setup-azure-slack-bot.sh (correlo
+# una sola vez en Cloud Shell antes del primer deploy).
+#
+# SLACK_BOT_TOKEN/SLACK_APP_TOKEN NUNCA pasan por este workflow ni por
+# GitHub Secrets: se cargan una sola vez, a mano, con
+# scripts/setup-azure-slack-bot.sh. Este workflow solo los referencia por
+# nombre (secretref:...) al actualizar las variables de entorno del
+# Container App -- nunca conoce ni toca su valor real.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "scripts/slack_bot.py"
+      - "scripts/tools.py"
+      - "scripts/http_client.py"
+      - "scripts/policy.py"
+      - "scripts/agent_log.py"
+      - "scripts/requirements-slack-bot.txt"
+      - "Dockerfile.slack-bot"
+      - "policies/**"
+      - "specs/**"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build, push y actualizar Container App
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and Push a GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE="ghcr.io/${{ github.repository }}/slack-bot"
+          docker build -f Dockerfile.slack-bot -t "$IMAGE:${{ github.sha }}" .
+          docker push "$IMAGE:${{ github.sha }}"
+          echo "🐳 Imagen publicada: $IMAGE:${{ github.sha }}"
+
+      - name: Azure Login (OIDC, sin secretos)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Cargar ANTHROPIC_API_KEY / JIRA_* como secretos del Container App
+        # Reusa los mismos Secrets que ya tiene el repo para
+        # spec-review.yml/cicd-cert.yml -- no hace falta cargarlos de nuevo
+        # a mano. az containerapp secret set solo agrega/actualiza estos
+        # cuatro; no toca slack-bot-token/slack-app-token, que ya viven ahi
+        # desde setup-azure-slack-bot.sh.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          az extension add --name containerapp --upgrade -y >/dev/null 2>&1
+          az containerapp secret set \
+            -g "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            -n "${{ vars.AZURE_APP_SLACK }}" \
+            --secrets \
+              "anthropic-api-key=$ANTHROPIC_API_KEY" \
+              "jira-base-url=$JIRA_BASE_URL" \
+              "jira-email=$JIRA_EMAIL" \
+              "jira-api-token=$JIRA_API_TOKEN" \
+            >/dev/null
+          echo "🔐 Secretos actualizados"
+
+      - name: Actualizar Container App (imagen + variables de entorno)
+        run: |
+          az containerapp update \
+            -g "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            -n "${{ vars.AZURE_APP_SLACK }}" \
+            --image "ghcr.io/${{ github.repository }}/slack-bot:${{ github.sha }}" \
+            --set-env-vars \
+              "SLACK_BOT_TOKEN=secretref:slack-bot-token" \
+              "SLACK_APP_TOKEN=secretref:slack-app-token" \
+              "ANTHROPIC_API_KEY=secretref:anthropic-api-key" \
+              "JIRA_BASE_URL=secretref:jira-base-url" \
+              "JIRA_EMAIL=secretref:jira-email" \
+              "JIRA_API_TOKEN=secretref:jira-api-token" \
+              "GITHUB_REPO=${{ github.repository }}" \
+              "JIRA_PROJECT_KEY=${{ vars.JIRA_PROJECT_KEY }}" \
+              "JIRA_TICKET_CHANNEL_ID=${{ vars.JIRA_TICKET_CHANNEL_ID }}"
+          echo "🚀 Bot de Slack actualizado en Azure Container Apps"
+
+      - name: Resumen
+        run: |
+          echo "🤖 Slack bot desplegado. Revisá que arrancó bien con:"
+          echo "   az containerapp logs show -g ${{ vars.AZURE_RESOURCE_GROUP }} -n ${{ vars.AZURE_APP_SLACK }} --follow --tail 50"

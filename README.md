@@ -388,6 +388,8 @@ Aunque Container Apps ya escala a 0 sola cuando no hay tráfico, para tener cont
 
 Ambos corren desde **Actions → (el workflow) → Run workflow**, eligiendo `dev`, `cert` o `ambas`.
 
+**Opción `slack`**: además de `dev`/`cert`/`ambas`, ambos workflows aceptan `slack` para apagar/encender el [bot de Slack en Azure](#9-bot-de-slack-en-azure-container-apps-siempre-disponible) por separado (no está incluido en `ambas`, que sigue significando solo dev + cert). Es un caso distinto porque el bot usa Socket Mode (conexión saliente permanente, sin tráfico HTTP entrante) y por eso no puede escalar a 0 solo: "apagar" fuerza `max-replicas 0` igual que las otras apps, pero "encender" fija `min-replicas 1` (no `0`) para que la conexión se mantenga viva, y como no tiene ingress no hay URL que mostrar -- el workflow imprime el comando `az containerapp logs show --follow` para confirmar que reconectó a Slack.
+
 ---
 
 ## 8. Bot de Microsoft Teams (Azure Bot Service + Functions)
@@ -486,12 +488,61 @@ En **Settings → Environments**, crear `dev` y `cert`; en `cert`, activar *Requ
 
 ---
 
+## 9. Bot de Slack en Azure (Container Apps, siempre disponible)
+
+El bot de Slack (`scripts/slack_bot.py`, sección 5) usa Socket Mode: una conexión SALIENTE hacia Slack, sin necesitar URL pública ni exponer puertos. Corre bien desde una laptop o un Codespace para desarrollo, pero para que el equipo lo tenga disponible todo el tiempo (no solo mientras alguien lo tiene abierto a mano), se despliega como un Container App más en el mismo Resource Group y Container Apps Environment que ya usan `ms-exchange-rate-dev`/`cert` (sección 7).
+
+**Diferencia clave con esos dos**: `ms-exchange-rate-dev`/`cert` escalan a 0 réplicas cuando no hay tráfico HTTP. Este bot no puede: como mantiene una conexión abierta con Slack todo el tiempo, corre con `min-replicas: 1` fijo -- es costo continuo (aunque de una sola réplica chica, sin ingress).
+
+### Arquitectura
+
+```
+Slack ──▶ (Socket Mode, conexión saliente) ──▶ Container App (min-replicas: 1, sin ingress)
+                                                     │
+                                                     └─ slack_bot.py + tools.py / policy.py /
+                                                        http_client.py / agent_log.py (mismos
+                                                        módulos que el resto del asistente, sin copiar)
+```
+
+### Provisionar el Container App (una sola vez, en Azure Cloud Shell)
+
+Requiere haber corrido antes `scripts/setup-azure.sh` (usa el mismo resource group y el mismo Container Apps Environment):
+
+```bash
+export SLACK_BOT_TOKEN="xoxb-..."
+export SLACK_APP_TOKEN="xapp-..."
+./scripts/setup-azure-slack-bot.sh juazor45/tbd-cicd-demo
+```
+
+Este script es el único lugar donde los tokens de Slack tocan Azure: los carga como secretos del Container App y nunca los sube a GitHub. Al final imprime `AZURE_APP_SLACK` (no es secreto, es un nombre) para cargar como **Variable** del repo, junto con `JIRA_TICKET_CHANNEL_ID` si querés habilitar `/crear-ticket` (mismo variable que ya usa el bot corriendo local, ver sección 5).
+
+| Variable | Ejemplo | Para qué |
+|---|---|---|
+| `AZURE_APP_SLACK` | `deploygo-slack-bot` | Container App del bot de Slack |
+| `JIRA_TICKET_CHANNEL_ID` | `C0123456` | Canal de Slack donde responde `/crear-ticket` (opcional) |
+
+### Desplegar el código del bot
+
+**Actions → Slack Bot - Deploy → Run workflow** (o hacé push a `main` tocando `scripts/slack_bot.py` y disparadores similares -- ver los `paths` del workflow). Construye la imagen (`Dockerfile.slack-bot`) y la publica en GHCR, configura `ANTHROPIC_API_KEY`/`JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` como secretos del Container App reutilizando los mismos Secrets que ya usa `spec-review.yml`/`cicd-cert.yml` (no hace falta cargarlos de nuevo), y actualiza el Container App con la imagen nueva. `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` nunca pasan por este workflow -- ya están en el Container App desde el paso anterior, y este los referencia por nombre (`secretref:...`) sin conocer su valor.
+
+Mismo paso manual que en la sección 7: la primera vez, marcá el paquete `slack-bot` como público en GitHub (**Packages → slack-bot → Package settings → Change visibility → Public**) para que Azure Container Apps pueda hacer *pull* de la imagen.
+
+### Verificar que está corriendo
+
+```bash
+az containerapp logs show -g rg-tbd-cicd-demo -n deploygo-slack-bot --follow --tail 50
+```
+
+Si conectó bien con Slack, el log muestra `🚀 DeployGo Assistant conectado a Slack (Socket Mode)`. Probalo escribiéndole al bot en Slack -- misma interacción que corriéndolo local (sección 5).
+
+---
+
 ## Estructura
 
 ```
 .
 ├── .github/workflows/     jira-branch · ci-pr · cicd-dev · cicd-cert · release · dashboard · consulta-estado
-│                          azure-apagar · azure-encender · teams-bot-deploy
+│                          azure-apagar · azure-encender · teams-bot-deploy · slack-bot-deploy
 ├── src/                   microservicio Quarkus (main y test)
 ├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
 ├── policies/               reglas declarativas (policy as code): spec-compliance · deploy-policy

@@ -1,0 +1,31 @@
+# Dockerfile.slack-bot — DeployGo Assistant en Slack (Socket Mode).
+#
+# Proceso de larga duracion sin puerto HTTP: abre una conexion SALIENTE
+# hacia Slack (Socket Mode) -- por eso el Container App que lo corre no
+# necesita ingress ni exponer ningun puerto. Ver scripts/slack_bot.py,
+# scripts/setup-azure-slack-bot.sh y .github/workflows/slack-bot-deploy.yml.
+#
+# Separado del Dockerfile de la raiz (que empaqueta el microservicio
+# Quarkus) porque son runtimes completamente distintos -- este es Python,
+# no Java/Maven, y no tiene nada que ver con ms-exchange-rate.
+
+FROM python:3.12-slim
+WORKDIR /app
+
+COPY scripts/requirements-slack-bot.txt .
+RUN pip install --no-cache-dir -r requirements-slack-bot.txt
+
+# Se copia todo scripts/ (no solo slack_bot.py) porque importa tools.py,
+# policy.py, http_client.py y agent_log.py del mismo directorio -- y para
+# no mantener una lista manual de "que copiar" que se desactualice cada vez
+# que se agregue un modulo nuevo (mismo criterio que teams-bot-deploy.yml
+# sincronizando modulos compartidos).
+COPY scripts/ ./scripts/
+COPY policies/ ./policies/
+COPY specs/ ./specs/
+
+RUN addgroup --system app && adduser --system --ingroup app app
+USER app
+
+WORKDIR /app/scripts
+ENTRYPOINT ["python", "slack_bot.py"]
