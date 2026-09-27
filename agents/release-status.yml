@@ -3,14 +3,22 @@
 # Agente de solo lectura: responde "en que estado esta mi release y que
 # sigue" cruzando Jira, GitHub Actions y el template del proceso. No tiene
 # ninguna tool de escritura, por eso no necesita HITL.
+#
+# analizar_error_pipeline (agregada despues de la prueba integral con
+# SCRUM-42): cuando detalle_ejecucion encuentra un step fallido, esta tool va
+# un paso mas alla -- trae el log real del job y le pide a Claude la causa
+# raiz y una solucion sugerida. Sigue siendo de solo lectura (no reintenta ni
+# cambia nada, a diferencia de flaky-rerun-pilot.yml) asi que no cambia el
+# nivel de autonomia ni el modo_hitl de este agente.
 
 id: release-status
 owner: juan.zorrilla
-proposito: "Responder en que fase del proceso esta un release y cual es el siguiente paso"
+proposito: "Responder en que fase del proceso esta un release y cual es el siguiente paso, incluyendo por que fallo si corresponde"
 tools_permitidas:
   - consultar_jira
   - consultar_pipelines
   - detalle_ejecucion
+  - analizar_error_pipeline
   - consultar_proceso
 nivel_autonomia: L1
 modo_hitl: ninguno

@@ -55,6 +55,38 @@ def http_get(url, headers=None):
         return 0, {"error": str(e)}
 
 
+def http_get_text(url, headers=None, max_chars=15000):
+    """GET que devuelve TEXTO plano en vez de JSON. Pensado para los logs de
+    GitHub Actions (GET /repos/.../actions/jobs/{job_id}/logs), que GitHub
+    sirve via un redirect 302 a texto plano en blob storage -- no son JSON,
+    asi que http_get() rompería con json.loads(). urllib sigue el redirect
+    solo, sin código extra.
+
+    Devuelve (status_code, texto). Si el texto supera max_chars, se queda con
+    el FINAL (donde suele estar el error real y el stack trace, no el
+    principio del build) y antepone un aviso de truncado.
+    """
+    inicio = time.monotonic()
+    try:
+        req = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as resp:
+            crudo = resp.read()
+            ms = int((time.monotonic() - inicio) * 1000)
+            logger.info("GET(text) %s -> %s (%d bytes, %d ms)", url, resp.status, len(crudo), ms)
+            texto = crudo.decode("utf-8", errors="replace")
+            if len(texto) > max_chars:
+                texto = f"[...log truncado, mostrando los últimos {max_chars} caracteres...]\n" + texto[-max_chars:]
+            return resp.status, texto
+    except urllib.error.HTTPError as e:
+        ms = int((time.monotonic() - inicio) * 1000)
+        logger.warning("GET(text) %s -> %s (%d ms)", url, e.code, ms)
+        return e.code, ""
+    except Exception as e:
+        ms = int((time.monotonic() - inicio) * 1000)
+        logger.error("GET(text) %s -> error de conexión tras %d ms: %s", url, ms, e)
+        return 0, ""
+
+
 def http_post(url, headers=None, body=None):
     """POST generico con cuerpo JSON. Devuelve (status_code, dict). status 0 = error
     de conexion/parseo. Mismo criterio que http_get: nunca truena, siempre informa
