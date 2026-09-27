@@ -1,0 +1,5 @@
+# Dependencias del bot de Slack (scripts/slack_bot.py). tools.py/policy.py/
+# http_client.py/agent_log.py son stdlib puro (ver sus propios docstrings) --
+# lo unico externo que hace falta es esto.
+slack-bolt>=1.18.0,<2
+anthropic>=1.0.0,<2
