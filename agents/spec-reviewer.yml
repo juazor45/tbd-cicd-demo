@@ -1,0 +1,19 @@
+# spec-reviewer — agente advisory que corre en spec-review.yml.
+#
+# Le pasa a Claude el diff real de un PR junto con el spec declarado del
+# ticket, y publica un comentario con un veredicto. Nunca bloquea el merge
+# (no es un check requerido) -- ver "Specs: el contrato del cambio" en el
+# README. Nota: review_agent.py lee specs/<TICKET>.yml directo del
+# filesystem, no llama a la funcion consultar_spec() de tools.py -- este
+# manifest documenta el alcance (que datos puede leer), no una llamada
+# literal a codigo.
+
+id: spec-reviewer
+owner: juan.zorrilla
+proposito: "Revisar si el diff de un PR respeta el contrato declarado en specs/<TICKET>.yml"
+tools_permitidas:
+  - consultar_spec
+nivel_autonomia: L1
+modo_hitl: approval-after
+canal_autorizado: "comentario en el PR (spec-review.yml)"
+rate_limit: "uno por PR"

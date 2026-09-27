@@ -1,0 +1,15 @@
+# policy-advisor — expone el contenido de policies/*.yml en lenguaje natural.
+#
+# Usado por el agente conversacional (Slack/Teams/CLI/Actions) para explicar
+# que controla el pipeline o los bots, sin que nadie tenga que abrir el YAML
+# a mano. Ver "Policy as code" en el README.
+
+id: policy-advisor
+owner: juan.zorrilla
+proposito: "Explicar el contenido de una politica declarativa de policies/*.yml"
+tools_permitidas:
+  - consultar_politica
+nivel_autonomia: L1
+modo_hitl: ninguno
+canal_autorizado: cualquiera
+rate_limit: "compartido con el resto del asistente (ver bot-policy.yml)"
