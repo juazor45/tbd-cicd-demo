@@ -100,6 +100,12 @@ rules:
 
 `policy.py` trae su propio parser mínimo de YAML (mapas/listas anidados) — deliberadamente separado del parser de `specs/*.yml`, que sí necesita soportar bloques folded (`contrato: >`) y ese es un formato distinto. Ninguno de los dos usa PyYAML, siguiendo la misma filosofía de cero dependencias externas del resto de `scripts/`.
 
+`scripts/tests/test_policy.py` cubre el motor contra las políticas reales del repo (`deploy-policy`, `agent-governance`, `bot-policy`): cada regla se prueba en su caso que pasa y en su caso que bloquea, más el parser YAML mínimo y la resolución de templates `{{ }}`. Corre sin dependencias externas (`unittest` de la librería estándar) en cada Pull Request, como paso de `ci-pr.yml`:
+
+```bash
+python3 -m unittest discover -s scripts/tests -p "test_*.py" -v
+```
+
 `bot-policy.yml` (Fase 3) tiene una particularidad: sus tres reglas (`sin-rate-limit`, `canal-autorizado`, `confirmado-por-mismo-usuario`) no siempre aplican juntas -- cada punto del flujo del bot evalúa solo el subconjunto que le corresponde, con `evaluar(politica, contexto, reglas=["..."])`. El rate limit en sí (`state.rate_limited()` en Teams, `_rate_limited()` en Slack) sigue viviendo en cada bot porque es *stateful* (registra el intento al mismo tiempo que lo chequea); lo que hace `policy.py` es decidir, de forma pura, si ese resultado ya calculado bloquea o no. El bot de Teams copia `policy.py` y `policies/` dentro de `scripts/teams_bot/` al desplegar (mismo mecanismo que ya usaba con `specs/`, ver `POLICIES_DIR` en `teams-bot-deploy.yml`) -- si agregás un módulo nuevo que el bot importe, hay que sumarlo a ese mismo paso de sincronización.
 
 ### Dashboard de auditoría
@@ -570,3 +576,7 @@ Si conectó bien con Slack, el log muestra `🚀 DeployGo Assistant conectado a 
 ## Alcance
 
 Prueba de concepto para validar el flujo completo y la utilidad del asistente. No es un entorno productivo: no hay cluster real, los gates de seguridad son simulados y las credenciales se gestionan con secrets de repositorio.
+
+## Licencia
+
+[MIT](LICENSE).
