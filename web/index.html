@@ -8,64 +8,78 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B1%3C/text%3E%3C/svg%3E">
 <style>
   :root{
-    --bg:#f6f7f9; --panel:#ffffff; --border:#e2e5ea; --text:#1a1d23; --text2:#5b6270;
-    --accent:#2f6feb; --accent-ink:#ffffff; --ok:#1a7f4e; --ok-bg:#e8f7ef;
-    --err:#b3261e; --err-bg:#fdecea; --code-bg:#f1f3f6; --radius:10px;
+    --bg:#f5f6f8; --panel:#ffffff; --border:#e4e6eb; --text:#1a1d23; --text2:#666d7a;
+    --accent:#6d4de6; --accent-ink:#ffffff; --accent-soft:#efeafd;
+    --ok:#1a7f4e; --ok-bg:#e8f7ef; --err:#c0392b; --err-bg:#fdecea;
+    --code-bg:#f1f2f5; --radius:10px;
   }
   @media (prefers-color-scheme: dark){
     :root{
-      --bg:#14161a; --panel:#1c1f26; --border:#2c313c; --text:#e8eaee; --text2:#9aa1ad;
-      --accent:#5b9bff; --accent-ink:#0b1220; --ok:#3ddc84; --ok-bg:#0f2a1c;
-      --err:#ff6b64; --err-bg:#2a1414; --code-bg:#11141a;
+      --bg:#121316; --panel:#1a1c21; --border:#2a2d34; --text:#e9eaee; --text2:#9096a2;
+      --accent:#a68bff; --accent-ink:#161022; --accent-soft:#241d38;
+      --ok:#3ddc84; --ok-bg:#0f2a1c; --err:#ff7a70; --err-bg:#2a1414;
+      --code-bg:#0f1114;
     }
   }
   *{box-sizing:border-box}
   body{
     margin:0; background:var(--bg); color:var(--text);
-    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font:13.5px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
-  .wrap{max-width:760px; margin:0 auto; padding:28px 16px 64px}
-  header{margin-bottom:20px}
-  h1{font-size:1.3rem; margin:0 0 4px}
-  .sub{color:var(--text2); font-size:.92rem; margin:0}
+  .wrap{max-width:600px; margin:0 auto; padding:20px 14px 40px}
+  header{margin-bottom:14px}
+  h1{font-size:1.05rem; margin:0 0 2px; display:flex; align-items:center; gap:7px}
+  h1 .punto{color:var(--accent)}
+  .sub{color:var(--text2); font-size:.8rem; margin:0}
   .card{
     background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
-    padding:18px; margin-bottom:16px;
+    padding:13px 14px; margin-bottom:10px;
   }
-  .card h2{font-size:1rem; margin:0 0 12px; display:flex; align-items:center; gap:8px}
-  label{display:block; font-size:.82rem; color:var(--text2); margin-bottom:4px}
+  .card h2{font-size:.82rem; margin:0 0 8px; color:var(--text2); font-weight:600; text-transform:uppercase; letter-spacing:.03em}
+  label{display:block; font-size:.78rem; color:var(--text2); margin-bottom:3px}
   input[type=text], input[type=number], select{
-    width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
-    background:var(--bg); color:var(--text); font-size:.95rem;
+    padding:7px 9px; border:1px solid var(--border); border-radius:7px;
+    background:var(--bg); color:var(--text); font-size:.88rem;
   }
-  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end}
-  .row > div{flex:1; min-width:140px}
+  input[type=text]:focus, input[type=number]:focus, select:focus, button:focus-visible{
+    outline:2px solid var(--accent); outline-offset:1px;
+  }
+  .fila{display:flex; gap:7px; flex-wrap:wrap; align-items:center}
+  .fila-config input{flex:1; min-width:180px}
   button{
-    padding:9px 16px; border:none; border-radius:8px; background:var(--accent); color:var(--accent-ink);
-    font-weight:600; font-size:.92rem; cursor:pointer; white-space:nowrap;
+    padding:7px 13px; border:none; border-radius:7px; background:var(--accent); color:var(--accent-ink);
+    font-weight:600; font-size:.82rem; cursor:pointer; white-space:nowrap; line-height:1.2;
   }
-  button:hover{filter:brightness(1.06)}
-  button:disabled{opacity:.55; cursor:default}
-  button.secundario{background:transparent; color:var(--accent); border:1px solid var(--accent)}
-  .resultado{margin-top:12px}
-  .estado{display:inline-flex; align-items:center; gap:6px; font-size:.85rem; font-weight:600; padding:3px 9px; border-radius:999px}
+  button:hover{filter:brightness(1.08)}
+  button:disabled{opacity:.5; cursor:default}
+  button.fantasma{background:transparent; color:var(--accent); border:1px solid var(--accent); padding:6px 12px}
+  .hint{font-size:.74rem; color:var(--text2); margin:6px 0 0}
+  .tabs{display:flex; gap:4px; margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:0}
+  .tab{
+    padding:6px 11px; font-size:.8rem; font-weight:600; color:var(--text2); background:none; border:none;
+    border-bottom:2px solid transparent; border-radius:0; cursor:pointer; margin-bottom:-1px;
+  }
+  .tab.activa{color:var(--accent); border-bottom-color:var(--accent)}
+  .panel{display:none}
+  .panel.activo{display:block}
+  .resultado{margin-top:10px}
+  .estado{display:inline-flex; align-items:center; gap:5px; font-size:.78rem; font-weight:600; padding:2px 8px; border-radius:999px}
   .estado.ok{color:var(--ok); background:var(--ok-bg)}
   .estado.err{color:var(--err); background:var(--err-bg)}
-  table{width:100%; border-collapse:collapse; margin-top:8px; font-size:.9rem}
-  th,td{text-align:left; padding:7px 8px; border-bottom:1px solid var(--border)}
-  th{color:var(--text2); font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.02em}
-  .destacado{font-size:1.15rem; font-weight:700; margin:6px 0 2px}
+  table{width:100%; border-collapse:collapse; margin-top:7px; font-size:.82rem}
+  th,td{text-align:left; padding:5px 6px; border-bottom:1px solid var(--border)}
+  th{color:var(--text2); font-weight:600; font-size:.7rem; text-transform:uppercase; letter-spacing:.02em}
+  .destacado{font-size:1.05rem; font-weight:700; margin:5px 0 1px; color:var(--accent)}
   pre{
-    background:var(--code-bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px;
-    font-size:.78rem; overflow-x:auto; margin:8px 0 0; white-space:pre-wrap; word-break:break-word;
+    background:var(--code-bg); border:1px solid var(--border); border-radius:7px; padding:8px 10px;
+    font-size:.72rem; overflow-x:auto; margin:6px 0 0; white-space:pre-wrap; word-break:break-word;
   }
-  details summary{cursor:pointer; color:var(--text2); font-size:.82rem; margin-top:8px}
-  .hint{font-size:.8rem; color:var(--text2); margin:6px 0 0}
-  footer{text-align:center; color:var(--text2); font-size:.78rem; margin-top:24px}
+  details summary{cursor:pointer; color:var(--text2); font-size:.76rem; margin-top:6px}
+  footer{text-align:center; color:var(--text2); font-size:.72rem; margin-top:16px}
   footer a{color:var(--text2)}
   .spinner{
-    display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.4);
-    border-top-color:#fff; border-radius:50%; animation:girar .7s linear infinite; vertical-align:-2px;
+    display:inline-block; width:12px; height:12px; border:2px solid rgba(0,0,0,.12);
+    border-top-color:var(--text2); border-radius:50%; animation:girar .7s linear infinite; vertical-align:-2px;
   }
   @keyframes girar{to{transform:rotate(360deg)}}
 </style>
@@ -74,79 +88,66 @@
 <div class="wrap">
 
   <header>
-    <h1>💱 Probador de ms-exchange-rate</h1>
-    <p class="sub">Interfaz de prueba manual para el microservicio de tipo de cambio — proyecto <code>tbd-cicd-demo</code> (SDLC agéntico).</p>
+    <h1><span class="punto">●</span> Probador de ms-exchange-rate</h1>
+    <p class="sub">Prueba manual del microservicio de tipo de cambio — <code>tbd-cicd-demo</code></p>
   </header>
 
   <div class="card">
-    <h2>⚙️ Configuración</h2>
-    <label for="baseUrl">URL base del microservicio</label>
-    <input type="text" id="baseUrl" placeholder="https://ms-exchange-rate-dev.&lt;hash&gt;.&lt;región&gt;.azurecontainerapps.io" autocomplete="off">
-    <p class="hint">
-      Se guarda en este navegador para la próxima vez. La sacás del último run de <code>CICD-DEV</code>/<code>CICD-CERT</code>
-      (paso "Smoke Test"), o corriendo
-      <code>az containerapp show -g rg-tbd-cicd-demo -n ms-exchange-rate-dev --query properties.configuration.ingress.fqdn -o tsv</code>.
-    </p>
-    <div class="row" style="margin-top:10px">
-      <div style="flex:none">
-        <button id="btnSalud" class="secundario" type="button">Probar conexión</button>
-      </div>
-      <div id="estadoSalud" style="flex:none"></div>
+    <h2>Configuración</h2>
+    <div class="fila fila-config">
+      <input type="text" id="baseUrl" placeholder="https://ms-exchange-rate-dev.<hash>.<región>.azurecontainerapps.io" autocomplete="off">
+      <button id="btnSalud" class="fantasma" type="button">Probar</button>
+      <span id="estadoSalud"></span>
     </div>
-    <p class="hint">Si el servicio escaló a 0 réplicas, la primera consulta puede tardar hasta ~30 s en despertar.</p>
+    <p class="hint">
+      Se guarda en este navegador. Se saca de <code>az containerapp show -g rg-tbd-cicd-demo -n ms-exchange-rate-dev --query properties.configuration.ingress.fqdn -o tsv</code>.
+      Si escaló a 0 réplicas, la primera consulta tarda hasta ~30s.
+    </p>
   </div>
 
   <div class="card">
-    <h2>📋 Todas las tasas</h2>
-    <button id="btnTodas" type="button">Consultar</button>
-    <div class="resultado" id="resTodas"></div>
-  </div>
+    <div class="tabs" role="tablist">
+      <button class="tab activa" type="button" data-tab="todas" role="tab" aria-selected="true">📋 Todas</button>
+      <button class="tab" type="button" data-tab="una" role="tab" aria-selected="false">🔎 Una divisa</button>
+      <button class="tab" type="button" data-tab="convertir" role="tab" aria-selected="false">🔁 Convertir</button>
+    </div>
 
-  <div class="card">
-    <h2>🔎 Una divisa</h2>
-    <div class="row">
-      <div>
-        <label for="divisaConsulta">Divisa</label>
+    <div class="panel activo" id="panel-todas" role="tabpanel">
+      <button id="btnTodas" type="button">Consultar</button>
+      <div class="resultado" id="resTodas"></div>
+    </div>
+
+    <div class="panel" id="panel-una" role="tabpanel">
+      <div class="fila">
         <select id="divisaConsulta">
           <option value="USD">USD — Dólar estadounidense</option>
           <option value="EUR">EUR — Euro</option>
           <option value="CLP">CLP — Peso chileno (x1000)</option>
           <option value="GBP">GBP — Libra esterlina</option>
         </select>
-      </div>
-      <div style="flex:none">
         <button id="btnUna" type="button">Consultar</button>
       </div>
+      <div class="resultado" id="resUna"></div>
     </div>
-    <div class="resultado" id="resUna"></div>
-  </div>
 
-  <div class="card">
-    <h2>🔁 Convertir a soles (PEN)</h2>
-    <div class="row">
-      <div>
-        <label for="divisaConvertir">Divisa</label>
+    <div class="panel" id="panel-convertir" role="tabpanel">
+      <div class="fila">
         <select id="divisaConvertir">
           <option value="USD">USD — Dólar estadounidense</option>
           <option value="EUR">EUR — Euro</option>
           <option value="CLP">CLP — Peso chileno (x1000)</option>
           <option value="GBP">GBP — Libra esterlina</option>
         </select>
-      </div>
-      <div>
-        <label for="monto">Monto</label>
-        <input type="number" id="monto" value="100" min="0" step="0.01">
-      </div>
-      <div style="flex:none">
+        <input type="number" id="monto" value="100" min="0" step="0.01" style="width:100px">
         <button id="btnConvertir" type="button">Convertir</button>
       </div>
+      <div class="resultado" id="resConvertir"></div>
     </div>
-    <div class="resultado" id="resConvertir"></div>
   </div>
 
   <footer>
     <a href="https://github.com/juazor45/tbd-cicd-demo" target="_blank" rel="noopener">juazor45/tbd-cicd-demo</a>
-    · servido como sitio estático desde Azure Storage
+    · static website en Azure Storage
   </footer>
 
 </div>
@@ -172,6 +173,18 @@
     return elBaseUrl.value.trim().replace(/\/+$/, "");
   }
 
+  // ---- Tabs ----
+  var tabs = document.querySelectorAll(".tab");
+  tabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      tabs.forEach(function (t) { t.classList.remove("activa"); t.setAttribute("aria-selected", "false"); });
+      document.querySelectorAll(".panel").forEach(function (p) { p.classList.remove("activo"); });
+      tab.classList.add("activa");
+      tab.setAttribute("aria-selected", "true");
+      $("panel-" + tab.dataset.tab).classList.add("activo");
+    });
+  });
+
   function formatearFecha(iso) {
     if (!iso) return "";
     var partes = iso.split("-");
@@ -181,7 +194,7 @@
 
   function pintarCargando(el, boton) {
     boton.disabled = true;
-    el.innerHTML = '<span class="hint"><span class="spinner" style="border-color:rgba(0,0,0,.15); border-top-color:var(--text2)"></span> consultando…</span>';
+    el.innerHTML = '<span class="hint"><span class="spinner"></span> consultando…</span>';
   }
 
   function pintarErrorFetch(el, err) {
@@ -214,21 +227,17 @@
   // ---- Probar conexión / salud ----
   $("btnSalud").addEventListener("click", function () {
     var el = $("estadoSalud");
-    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL primero</span>'; return; }
-    el.innerHTML = '<span class="hint"><span class="spinner" style="border-color:rgba(0,0,0,.15); border-top-color:var(--text2)"></span> probando…</span>';
+    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL</span>'; return; }
+    el.innerHTML = '<span class="hint"><span class="spinner"></span></span>';
     pedirJson(baseUrl() + "/q/health/ready").then(function (r) {
-      if (r.ok) {
-        el.innerHTML = '<span class="estado ok">✓ Servicio arriba</span>';
-      } else {
-        el.innerHTML = '<span class="estado err">✗ HTTP ' + r.status + '</span>';
-      }
+      el.innerHTML = r.ok ? '<span class="estado ok">✓ Arriba</span>' : '<span class="estado err">✗ HTTP ' + r.status + '</span>';
     }).catch(function (err) { pintarErrorFetch(el, err); });
   });
 
   // ---- Todas las tasas ----
   $("btnTodas").addEventListener("click", function () {
     var el = $("resTodas"), boton = $("btnTodas");
-    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL primero</span>'; return; }
+    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL en Configuración</span>'; return; }
     pintarCargando(el, boton);
     pedirJson(baseUrl() + "/api/v1/exchange-rates").then(function (r) {
       boton.disabled = false;
@@ -250,7 +259,7 @@
   // ---- Una divisa ----
   $("btnUna").addEventListener("click", function () {
     var el = $("resUna"), boton = $("btnUna"), divisa = $("divisaConsulta").value;
-    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL primero</span>'; return; }
+    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL en Configuración</span>'; return; }
     pintarCargando(el, boton);
     pedirJson(baseUrl() + "/api/v1/exchange-rates/" + encodeURIComponent(divisa)).then(function (r) {
       boton.disabled = false;
@@ -274,7 +283,7 @@
   $("btnConvertir").addEventListener("click", function () {
     var el = $("resConvertir"), boton = $("btnConvertir");
     var divisa = $("divisaConvertir").value, monto = $("monto").value;
-    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL primero</span>'; return; }
+    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL en Configuración</span>'; return; }
     if (monto === "" || isNaN(Number(monto))) { el.innerHTML = '<span class="estado err">✗ Ingresá un monto válido</span>'; return; }
     pintarCargando(el, boton);
     var url = baseUrl() + "/api/v1/exchange-rates/" + encodeURIComponent(divisa) + "/convert?amount=" + encodeURIComponent(monto);
