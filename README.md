@@ -100,7 +100,7 @@ rules:
 
 `policy.py` trae su propio parser mínimo de YAML (mapas/listas anidados) — deliberadamente separado del parser de `specs/*.yml`, que sí necesita soportar bloques folded (`contrato: >`) y ese es un formato distinto. Ninguno de los dos usa PyYAML, siguiendo la misma filosofía de cero dependencias externas del resto de `scripts/`.
 
-`scripts/tests/test_policy.py` cubre el motor contra las políticas reales del repo (`deploy-policy`, `agent-governance`, `bot-policy`): cada regla se prueba en su caso que pasa y en su caso que bloquea, más el parser YAML mínimo y la resolución de templates `{{ }}`. Corre sin dependencias externas (`unittest` de la librería estándar) en cada Pull Request, como paso de `ci-pr.yml`:
+`scripts/tests/test_policy.py` cubre el motor contra las políticas reales del repo (`deploy-policy`, `agent-governance`, `bot-policy`): cada regla se prueba en su caso que pasa y en su caso que bloquea, más el parser YAML mínimo y la resolución de templates `{{ }}`. `scripts/tests/test_agent_registry.py` hace lo mismo con el Agent Registry: los 6 manifests reales de `agents/*.yml`, el cache en memoria, la normalización de `tools_permitidas` cuando el YAML trae un solo valor, el `ValueError` ante un manifest incompleto, y `validar_registro()` (que un manifest declare una tool que ya no existe en `tools.py`). Ambos corren sin dependencias externas (`unittest` de la librería estándar) en cada Pull Request, como paso de `ci-pr.yml`:
 
 ```bash
 python3 -m unittest discover -s scripts/tests -p "test_*.py" -v
