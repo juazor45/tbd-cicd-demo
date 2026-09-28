@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Probador · ms-exchange-rate</title>
+<meta name="description" content="Interfaz web para probar los endpoints de ms-exchange-rate (tbd-cicd-demo) sin usar curl.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B1%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --border:#e2e5ea; --text:#1a1d23; --text2:#5b6270;
+    --accent:#2f6feb; --accent-ink:#ffffff; --ok:#1a7f4e; --ok-bg:#e8f7ef;
+    --err:#b3261e; --err-bg:#fdecea; --code-bg:#f1f3f6; --radius:10px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#14161a; --panel:#1c1f26; --border:#2c313c; --text:#e8eaee; --text2:#9aa1ad;
+      --accent:#5b9bff; --accent-ink:#0b1220; --ok:#3ddc84; --ok-bg:#0f2a1c;
+      --err:#ff6b64; --err-bg:#2a1414; --code-bg:#11141a;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:760px; margin:0 auto; padding:28px 16px 64px}
+  header{margin-bottom:20px}
+  h1{font-size:1.3rem; margin:0 0 4px}
+  .sub{color:var(--text2); font-size:.92rem; margin:0}
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:18px; margin-bottom:16px;
+  }
+  .card h2{font-size:1rem; margin:0 0 12px; display:flex; align-items:center; gap:8px}
+  label{display:block; font-size:.82rem; color:var(--text2); margin-bottom:4px}
+  input[type=text], input[type=number], select{
+    width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
+    background:var(--bg); color:var(--text); font-size:.95rem;
+  }
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end}
+  .row > div{flex:1; min-width:140px}
+  button{
+    padding:9px 16px; border:none; border-radius:8px; background:var(--accent); color:var(--accent-ink);
+    font-weight:600; font-size:.92rem; cursor:pointer; white-space:nowrap;
+  }
+  button:hover{filter:brightness(1.06)}
+  button:disabled{opacity:.55; cursor:default}
+  button.secundario{background:transparent; color:var(--accent); border:1px solid var(--accent)}
+  .resultado{margin-top:12px}
+  .estado{display:inline-flex; align-items:center; gap:6px; font-size:.85rem; font-weight:600; padding:3px 9px; border-radius:999px}
+  .estado.ok{color:var(--ok); background:var(--ok-bg)}
+  .estado.err{color:var(--err); background:var(--err-bg)}
+  table{width:100%; border-collapse:collapse; margin-top:8px; font-size:.9rem}
+  th,td{text-align:left; padding:7px 8px; border-bottom:1px solid var(--border)}
+  th{color:var(--text2); font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.02em}
+  .destacado{font-size:1.15rem; font-weight:700; margin:6px 0 2px}
+  pre{
+    background:var(--code-bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px;
+    font-size:.78rem; overflow-x:auto; margin:8px 0 0; white-space:pre-wrap; word-break:break-word;
+  }
+  details summary{cursor:pointer; color:var(--text2); font-size:.82rem; margin-top:8px}
+  .hint{font-size:.8rem; color:var(--text2); margin:6px 0 0}
+  footer{text-align:center; color:var(--text2); font-size:.78rem; margin-top:24px}
+  footer a{color:var(--text2)}
+  .spinner{
+    display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.4);
+    border-top-color:#fff; border-radius:50%; animation:girar .7s linear infinite; vertical-align:-2px;
+  }
+  @keyframes girar{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>💱 Probador de ms-exchange-rate</h1>
+    <p class="sub">Interfaz de prueba manual para el microservicio de tipo de cambio — proyecto <code>tbd-cicd-demo</code> (SDLC agéntico).</p>
+  </header>
+
+  <div class="card">
+    <h2>⚙️ Configuración</h2>
+    <label for="baseUrl">URL base del microservicio</label>
+    <input type="text" id="baseUrl" placeholder="https://ms-exchange-rate-dev.&lt;hash&gt;.&lt;región&gt;.azurecontainerapps.io" autocomplete="off">
+    <p class="hint">
+      Se guarda en este navegador para la próxima vez. La sacás del último run de <code>CICD-DEV</code>/<code>CICD-CERT</code>
+      (paso "Smoke Test"), o corriendo
+      <code>az containerapp show -g rg-tbd-cicd-demo -n ms-exchange-rate-dev --query properties.configuration.ingress.fqdn -o tsv</code>.
+    </p>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:none">
+        <button id="btnSalud" class="secundario" type="button">Probar conexión</button>
+      </div>
+      <div id="estadoSalud" style="flex:none"></div>
+    </div>
+    <p class="hint">Si el servicio escaló a 0 réplicas, la primera consulta puede tardar hasta ~30 s en despertar.</p>
+  </div>
+
+  <div class="card">
+    <h2>📋 Todas las tasas</h2>
+    <button id="btnTodas" type="button">Consultar</button>
+    <div class="resultado" id="resTodas"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔎 Una divisa</h2>
+    <div class="row">
+      <div>
+        <label for="divisaConsulta">Divisa</label>
+        <select id="divisaConsulta">
+          <option value="USD">USD — Dólar estadounidense</option>
+          <option value="EUR">EUR — Euro</option>
+          <option value="CLP">CLP — Peso chileno (x1000)</option>
+          <option value="GBP">GBP — Libra esterlina</option>
+        </select>
+      </div>
+      <div style="flex:none">
+        <button id="btnUna" type="button">Consultar</button>
+      </div>
+    </div>
+    <div class="resultado" id="resUna"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔁 Convertir a soles (PEN)</h2>
+    <div class="row">
+      <div>
+        <label for="divisaConvertir">Divisa</label>
+        <select id="divisaConvertir">
+          <option value="USD">USD — Dólar estadounidense</option>
+          <option value="EUR">EUR — Euro</option>
+          <option value="CLP">CLP — Peso chileno (x1000)</option>
+          <option value="GBP">GBP — Libra esterlina</option>
+        </select>
+      </div>
+      <div>
+        <label for="monto">Monto</label>
+        <input type="number" id="monto" value="100" min="0" step="0.01">
+      </div>
+      <div style="flex:none">
+        <button id="btnConvertir" type="button">Convertir</button>
+      </div>
+    </div>
+    <div class="resultado" id="resConvertir"></div>
+  </div>
+
+  <footer>
+    <a href="https://github.com/juazor45/tbd-cicd-demo" target="_blank" rel="noopener">juazor45/tbd-cicd-demo</a>
+    · servido como sitio estático desde Azure Storage
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var STORAGE_KEY = "ms-exchange-rate-tester:baseUrl";
+
+  var elBaseUrl = $("baseUrl");
+  try {
+    var guardada = window.localStorage.getItem(STORAGE_KEY);
+    if (guardada) elBaseUrl.value = guardada;
+  } catch (e) { /* localStorage puede fallar (modo privado); no es crítico acá */ }
+
+  elBaseUrl.addEventListener("change", function () {
+    try { window.localStorage.setItem(STORAGE_KEY, elBaseUrl.value.trim()); } catch (e) {}
+  });
+
+  function baseUrl() {
+    return elBaseUrl.value.trim().replace(/\/+$/, "");
+  }
+
+  function formatearFecha(iso) {
+    if (!iso) return "";
+    var partes = iso.split("-");
+    if (partes.length !== 3) return iso;
+    return partes[2] + "/" + partes[1] + "/" + partes[0];
+  }
+
+  function pintarCargando(el, boton) {
+    boton.disabled = true;
+    el.innerHTML = '<span class="hint"><span class="spinner" style="border-color:rgba(0,0,0,.15); border-top-color:var(--text2)"></span> consultando…</span>';
+  }
+
+  function pintarErrorFetch(el, err) {
+    el.innerHTML =
+      '<span class="estado err">✗ Error de conexión</span>' +
+      '<p class="hint">No se pudo contactar "' + escaparHtml(baseUrl() || "(vacío)") + '". Revisá la URL, que el servicio esté desplegado, ' +
+      'y que tenga CORS habilitado para este origen (' + escaparHtml(window.location.origin) + '). Detalle técnico: ' + escaparHtml(String(err)) + '</p>';
+  }
+
+  function escaparHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function bloqueJson(obj) {
+    return '<details><summary>Ver JSON crudo</summary><pre>' + escaparHtml(JSON.stringify(obj, null, 2)) + '</pre></details>';
+  }
+
+  function pedirJson(url) {
+    return fetch(url, { headers: { Accept: "application/json" } }).then(function (resp) {
+      return resp.text().then(function (texto) {
+        var data = null;
+        try { data = texto ? JSON.parse(texto) : null; } catch (e) { /* respuesta no-JSON */ }
+        return { status: resp.status, ok: resp.ok, data: data, texto: texto };
+      });
+    });
+  }
+
+  // ---- Probar conexión / salud ----
+  $("btnSalud").addEventListener("click", function () {
+    var el = $("estadoSalud");
+    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL primero</span>'; return; }
+    el.innerHTML = '<span class="hint"><span class="spinner" style="border-color:rgba(0,0,0,.15); border-top-color:var(--text2)"></span> probando…</span>';
+    pedirJson(baseUrl() + "/q/health/ready").then(function (r) {
+      if (r.ok) {
+        el.innerHTML = '<span class="estado ok">✓ Servicio arriba</span>';
+      } else {
+        el.innerHTML = '<span class="estado err">✗ HTTP ' + r.status + '</span>';
+      }
+    }).catch(function (err) { pintarErrorFetch(el, err); });
+  });
+
+  // ---- Todas las tasas ----
+  $("btnTodas").addEventListener("click", function () {
+    var el = $("resTodas"), boton = $("btnTodas");
+    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL primero</span>'; return; }
+    pintarCargando(el, boton);
+    pedirJson(baseUrl() + "/api/v1/exchange-rates").then(function (r) {
+      boton.disabled = false;
+      if (!r.ok || !Array.isArray(r.data)) {
+        el.innerHTML = '<span class="estado err">✗ HTTP ' + r.status + '</span>' + bloqueJson(r.data || r.texto);
+        return;
+      }
+      var filas = r.data.map(function (t) {
+        return "<tr><td><strong>" + escaparHtml(t.currency) + "</strong></td><td>" + escaparHtml(t.description) +
+          "</td><td>" + t.buyRate + "</td><td>" + t.sellRate + "</td><td>" + formatearFecha(t.date) + "</td></tr>";
+      }).join("");
+      el.innerHTML =
+        '<span class="estado ok">✓ ' + r.data.length + ' divisas</span>' +
+        "<table><thead><tr><th>Divisa</th><th>Descripción</th><th>Compra</th><th>Venta</th><th>Fecha</th></tr></thead><tbody>" +
+        filas + "</tbody></table>" + bloqueJson(r.data);
+    }).catch(function (err) { boton.disabled = false; pintarErrorFetch(el, err); });
+  });
+
+  // ---- Una divisa ----
+  $("btnUna").addEventListener("click", function () {
+    var el = $("resUna"), boton = $("btnUna"), divisa = $("divisaConsulta").value;
+    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL primero</span>'; return; }
+    pintarCargando(el, boton);
+    pedirJson(baseUrl() + "/api/v1/exchange-rates/" + encodeURIComponent(divisa)).then(function (r) {
+      boton.disabled = false;
+      if (r.status === 404) {
+        el.innerHTML = '<span class="estado err">✗ No existe la divisa "' + escaparHtml(divisa) + '" (HTTP 404)</span>';
+        return;
+      }
+      if (!r.ok || !r.data) {
+        el.innerHTML = '<span class="estado err">✗ HTTP ' + r.status + '</span>' + bloqueJson(r.data || r.texto);
+        return;
+      }
+      el.innerHTML =
+        '<span class="estado ok">✓ OK</span>' +
+        '<p class="destacado">' + escaparHtml(r.data.currency) + " — " + escaparHtml(r.data.description) + "</p>" +
+        "<p>Compra: <strong>" + r.data.buyRate + "</strong> · Venta: <strong>" + r.data.sellRate + "</strong> · " +
+        formatearFecha(r.data.date) + "</p>" + bloqueJson(r.data);
+    }).catch(function (err) { boton.disabled = false; pintarErrorFetch(el, err); });
+  });
+
+  // ---- Convertir ----
+  $("btnConvertir").addEventListener("click", function () {
+    var el = $("resConvertir"), boton = $("btnConvertir");
+    var divisa = $("divisaConvertir").value, monto = $("monto").value;
+    if (!baseUrl()) { el.innerHTML = '<span class="estado err">✗ Ingresá una URL primero</span>'; return; }
+    if (monto === "" || isNaN(Number(monto))) { el.innerHTML = '<span class="estado err">✗ Ingresá un monto válido</span>'; return; }
+    pintarCargando(el, boton);
+    var url = baseUrl() + "/api/v1/exchange-rates/" + encodeURIComponent(divisa) + "/convert?amount=" + encodeURIComponent(monto);
+    pedirJson(url).then(function (r) {
+      boton.disabled = false;
+      if (r.status === 404) {
+        el.innerHTML = '<span class="estado err">✗ No existe la divisa "' + escaparHtml(divisa) + '" (HTTP 404)</span>';
+        return;
+      }
+      if (r.status === 400) {
+        el.innerHTML = '<span class="estado err">✗ ' + escaparHtml((r.data && r.data.error) || "Pedido inválido") + '</span>';
+        return;
+      }
+      if (!r.ok || !r.data) {
+        el.innerHTML = '<span class="estado err">✗ HTTP ' + r.status + '</span>' + bloqueJson(r.data || r.texto);
+        return;
+      }
+      el.innerHTML =
+        '<span class="estado ok">✓ OK</span>' +
+        '<p class="destacado">' + r.data.amount + " " + escaparHtml(r.data.currency) + " = " + r.data.amountInPen + " PEN</p>" +
+        bloqueJson(r.data);
+    }).catch(function (err) { boton.disabled = false; pintarErrorFetch(el, err); });
+  });
+})();
+</script>
+</body>
+</html>

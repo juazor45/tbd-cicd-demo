@@ -1,0 +1,53 @@
+name: Static Site - Deploy
+run-name: Static Site Deploy · ${{ github.event_name == 'push' && 'push a main' || 'manual' }}
+
+# Publica web/ (el probador manual de ms-exchange-rate) como static website
+# en la Storage Account creada por scripts/setup-azure-static-site.sh.
+# Corre solo, sin resources de computo -- por eso no hay "apagar" para esto
+# como si lo hay para los Container Apps: el costo de un sitio estatico
+# chico en Blob Storage es marginal incluso siempre "prendido".
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/azure-static-site-deploy.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Subir web/ a Azure Storage (static website)
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Azure Login (OIDC, sin secretos)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Subir a $web
+        run: |
+          STORAGE_ACCOUNT="${{ vars.AZURE_STORAGE_ACCOUNT }}"
+          if [ -z "$STORAGE_ACCOUNT" ]; then
+            echo "❌ Falta la variable de repo AZURE_STORAGE_ACCOUNT (la imprime scripts/setup-azure-static-site.sh)."
+            exit 1
+          fi
+          KEY="$(az storage account keys list -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$STORAGE_ACCOUNT" --query '[0].value' -o tsv)"
+          az storage blob upload-batch \
+            --account-name "$STORAGE_ACCOUNT" --account-key "$KEY" \
+            -d '$web' -s web/ --overwrite
+          SITE_URL="$(az storage account show -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$STORAGE_ACCOUNT" --query "primaryEndpoints.web" -o tsv)"
+          echo "🚀 Publicado en: $SITE_URL"
+          echo "### 🚀 Publicado" >> "$GITHUB_STEP_SUMMARY"
+          echo "$SITE_URL" >> "$GITHUB_STEP_SUMMARY"
