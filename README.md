@@ -547,12 +547,42 @@ Si conectó bien con Slack, el log muestra `🚀 DeployGo Assistant conectado a 
 
 ---
 
+## 10. Interfaz web de prueba (`ms-exchange-rate`)
+
+`web/index.html` es una pagina de una sola vista (sin build, sin dependencias) para probar los tres endpoints de `ms-exchange-rate` desde el navegador en vez de armar cada `curl` a mano: listar todas las tasas, consultar una divisa, y convertir un monto a soles. Se sirve como **static website** desde Azure Storage -- el hosting mas barato posible para HTML/CSS/JS sin backend propio, sin ningun recurso de computo corriendo en segundo plano (a diferencia de un Container App, que aunque escale a 0 replicas sigue siendo computo).
+
+La URL base del microservicio se pide en la propia pagina (no viene hardcodeada) y se guarda en el navegador de quien la usa -- asi la pagina sigue sirviendo aunque `ms-exchange-rate-dev`/`cert` se recreen y cambien de FQDN. Como esos Container Apps escalan a 0 replicas, la primera consulta despues de un rato sin trafico puede tardar unos segundos en responder (cold start) -- la pagina lo avisa.
+
+### CORS
+
+El navegador bloquea por defecto una llamada `fetch()` a un origen distinto del que sirve la pagina (esta interfaz vive en Azure Storage; la API, en Azure Container Apps). Por eso `src/main/resources/application.properties` habilita `quarkus.http.cors` para esta API de solo lectura con datos de demo -- ver el comentario ahi si en algun momento esto sirve datos reales.
+
+### Provisionar la Storage Account (una sola vez, en Azure Cloud Shell)
+
+Requiere haber corrido antes `scripts/setup-azure.sh` (reusa el mismo resource group y el mismo permiso Contributor que ya tiene la identidad OIDC de GitHub Actions -- no hace falta ningun rol nuevo):
+
+```bash
+./scripts/setup-azure-static-site.sh
+```
+
+El nombre de la Storage Account es global en toda Azure -- si el default (`sttbdcicddemoweb`) ya esta tomado, corre de nuevo con `STORAGE_ACCOUNT=otroNombre ./scripts/setup-azure-static-site.sh`. Al final imprime la URL publicada y `AZURE_STORAGE_ACCOUNT` (no es secreto, es un nombre) para cargar como **Variable** del repo.
+
+| Variable | Ejemplo | Para qué |
+|---|---|---|
+| `AZURE_STORAGE_ACCOUNT` | `sttbdcicddemoweb` | Storage Account que sirve `web/` como static website |
+
+### Desplegar cambios de la interfaz
+
+El workflow **Static Site - Deploy** corre solo con cada push a `main` que toque `web/**`, o manual desde **Actions → Static Site - Deploy → Run workflow**. Sube `web/` entero a la Storage Account (contenedor `$web`) con `az storage blob upload-batch`, usando la misma identidad OIDC del resto del proyecto -- ninguna clave de Azure pasa por GitHub.
+
+---
+
 ## Estructura
 
 ```
 .
 ├── .github/workflows/     jira-branch · ci-pr · cicd-dev · cicd-cert · release · dashboard · consulta-estado
-│                          azure-apagar · azure-encender · teams-bot-deploy · slack-bot-deploy
+│                          azure-apagar · azure-encender · teams-bot-deploy · slack-bot-deploy · azure-static-site-deploy
 ├── src/                   microservicio Quarkus (main y test)
 ├── specs/                 contrato por ticket (TEMPLATE.yml + specs/<TICKET>.yml)
 ├── policies/               reglas declarativas (policy as code): spec-compliance · deploy-policy
@@ -564,8 +594,10 @@ Si conectó bien con Slack, el log muestra `🚀 DeployGo Assistant conectado a 
 │   ├── teams_bot/         bot de Microsoft Teams (Azure Functions): bot · agent · cards · config · function_app
 │   ├── setup-repo.sh      protecciones de rama/tags, environments
 │   ├── setup-azure.sh     provisiona Azure Container Apps + OIDC
+│   ├── setup-azure-static-site.sh provisiona la Storage Account del probador web
 │   └── setup-azure-teams-bot.sh   provisiona Function App + Azure Bot + Managed Identity
 ├── docs/                  estrategia de ramas + dashboard.md/dashboard.html (generados)
+├── web/                   probador manual de ms-exchange-rate (static website en Azure Storage)
 ├── INSTALL.md             guía paso a paso, desde cero, hasta un ambiente funcionando
 ├── pom.xml
 └── Dockerfile
