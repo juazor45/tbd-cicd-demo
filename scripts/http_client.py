@@ -55,28 +55,60 @@ def http_get(url, headers=None):
         return 0, {"error": str(e)}
 
 
+class _SinAuthEnRedirect(urllib.request.HTTPRedirectHandler):
+    """Corta el auto-seguimiento de redirects de urllib para no reenviar el
+    header Authorization original al destino.
+
+    GitHub redirige el log de un job (302) a una URL PRE-FIRMADA de blob
+    storage (SAS token en la query string) -- esa URL ya trae su propia
+    autenticación. Si dejamos que urllib reenvíe el mismo header
+    Authorization ahí (su comportamiento por default), blob storage ve dos
+    mecanismos de auth en conflicto y devuelve 401 -- confirmado en vivo
+    contra un job real: la MISMA URL de redirect responde 200 sin el header
+    y 401 con él puesto. Por eso paramos acá y hacemos el segundo GET
+    nosotros mismos, sin headers, en http_get_text.
+    """
+
+    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+        return None
+
+
 def http_get_text(url, headers=None, max_chars=15000):
     """GET que devuelve TEXTO plano en vez de JSON. Pensado para los logs de
     GitHub Actions (GET /repos/.../actions/jobs/{job_id}/logs), que GitHub
     sirve via un redirect 302 a texto plano en blob storage -- no son JSON,
-    asi que http_get() rompería con json.loads(). urllib sigue el redirect
-    solo, sin código extra.
+    asi que http_get() rompería con json.loads().
+
+    OJO: el segundo GET (al destino del redirect) se hace SIN los headers
+    originales -- ver _SinAuthEnRedirect. No es un seguimiento de redirect
+    genérico: es específico para este patrón de "redirect a URL pre-firmada".
 
     Devuelve (status_code, texto). Si el texto supera max_chars, se queda con
     el FINAL (donde suele estar el error real y el stack trace, no el
     principio del build) y antepone un aviso de truncado.
     """
     inicio = time.monotonic()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=SSL_CTX), _SinAuthEnRedirect()
+    )
     try:
         req = urllib.request.Request(url, headers=headers or {})
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as resp:
-            crudo = resp.read()
-            ms = int((time.monotonic() - inicio) * 1000)
-            logger.info("GET(text) %s -> %s (%d bytes, %d ms)", url, resp.status, len(crudo), ms)
-            texto = crudo.decode("utf-8", errors="replace")
-            if len(texto) > max_chars:
-                texto = f"[...log truncado, mostrando los últimos {max_chars} caracteres...]\n" + texto[-max_chars:]
-            return resp.status, texto
+        try:
+            resp = opener.open(req, timeout=30)
+            status, crudo = resp.status, resp.read()
+        except urllib.error.HTTPError as e:
+            location = e.headers.get("Location") if e.code in (301, 302, 303, 307, 308) else None
+            if not location:
+                raise
+            req2 = urllib.request.Request(location)
+            with urllib.request.urlopen(req2, context=SSL_CTX, timeout=30) as resp2:
+                status, crudo = resp2.status, resp2.read()
+        ms = int((time.monotonic() - inicio) * 1000)
+        logger.info("GET(text) %s -> %s (%d bytes, %d ms)", url, status, len(crudo), ms)
+        texto = crudo.decode("utf-8", errors="replace")
+        if len(texto) > max_chars:
+            texto = f"[...log truncado, mostrando los últimos {max_chars} caracteres...]\n" + texto[-max_chars:]
+        return status, texto
     except urllib.error.HTTPError as e:
         ms = int((time.monotonic() - inicio) * 1000)
         logger.warning("GET(text) %s -> %s (%d ms)", url, e.code, ms)
