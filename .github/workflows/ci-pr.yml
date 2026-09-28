@@ -24,6 +24,9 @@ jobs:
           git diff --name-only "origin/${{ github.base_ref }}...HEAD" > /tmp/pr-files.txt
           python3 scripts/validate_spec.py "${{ github.head_ref }}" /tmp/pr-files.txt
 
+      - name: Tests del motor de politicas (Python)
+        run: python3 -m unittest discover -s scripts/tests -p "test_*.py" -v
+
       - name: Set up JDK 17
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
